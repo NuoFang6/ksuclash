@@ -29,6 +29,7 @@ VN="${VN:-1.0.0}"
 BUILD="$APK/build"
 rm -rf "$BUILD"
 mkdir -p "$BUILD/gen" "$BUILD/obj" "$BUILD/dex"
+mkdir -p "$ROOT/module/bin"   # APK 输出目录（CI 全新 checkout 时可能不存在）
 
 echo ">> aapt2 compile"
 "$AAPT2" compile --dir "$APK/res" -o "$BUILD/res.zip"

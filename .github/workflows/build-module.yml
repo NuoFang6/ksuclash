@@ -48,6 +48,7 @@ jobs:
 
       - name: Download mihomo (android-arm64)
         run: |
+          mkdir -p module/bin
           curl -sSL -o /tmp/mihomo.gz "${{ steps.mihomo.outputs.url }}"
           gunzip -c /tmp/mihomo.gz > module/bin/mihomo
           chmod +x module/bin/mihomo
