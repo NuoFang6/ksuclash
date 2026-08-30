@@ -1,9 +1,9 @@
 /* KSU Clash 悬浮面板 - 注入 zashboard
- * 功能：
- *  - 可拖拽气泡，点按展开面板
- *  - 核心操作（启动/停止/重启/状态）经 window.ksu.exec 调用模块 clashctl（仅 KSU 管理器 WebUI 内可用）
- *  - 快速模式切换（规则/全局/直连）优先走 clashctl，浏览器环境降级为 Clash API
- *  - 首次访问自动填充后端（读取 window.__KSUCLASH__ 注入的 API 地址与 secret），免手动配置
+ *  - 可拖拽气泡，点按展开全屏覆盖层（核心操作）
+ *  - 启动/停止/重启 经 window.ksu.exec 调用模块 clashctl（KSU 管理器 WebUI 或配套 App 内可用；
+ *    普通浏览器自动降级为仅状态显示）
+ *  - 启动/重启成功后自动刷新页面（zashboard 重连）；停止后覆盖层显示"核心未运行"
+ *  - 首次访问自动导入后端（读取 window.__KSUCLASH__ 注入的 API 地址与 secret）
  */
 ;(function () {
   'use strict'
@@ -12,12 +12,11 @@
   var hasRoot = typeof window.ksu !== 'undefined' && typeof window.ksu.exec === 'function'
   var CTL = '/data/adb/modules/ksuclash/scripts/clashctl'
 
-  // ---------- 自动导入后端（仅当面板尚未配置任何后端时） ----------
+  // ---------- 自动导入后端（仅当面板尚未配置任何后端时；旧空密钥条目自动修复） ----------
   function seedBackend() {
     try {
       var list = JSON.parse(localStorage.getItem('setup/api-list') || '[]')
       if (list.length) {
-        // 修复：先前以空密钥种子过的条目，配置就绪后自动补上 secret
         for (var i = 0; i < list.length; i++) {
           if (list[i].uuid === 'ksuclash-local' && A.secret && list[i].password !== A.secret) {
             list[i].password = A.secret
@@ -26,7 +25,6 @@
         }
         return
       }
-      var uuid = 'ksuclash-local'
       var backend = {
         type: 'clash',
         protocol: A.protocol || 'http',
@@ -34,128 +32,167 @@
         port: String(A.port || '9090'),
         secondaryPath: '',
         password: A.secret || '',
-        uuid: uuid,
+        uuid: 'ksuclash-local',
         label: 'KSU Clash',
       }
       localStorage.setItem('setup/api-list', JSON.stringify([backend]))
-      localStorage.setItem('setup/active-uuid', JSON.stringify(uuid))
+      localStorage.setItem('setup/active-uuid', JSON.stringify('ksuclash-local'))
     } catch (e) { /* ignore */ }
   }
   seedBackend()
 
-  // ---------- API ----------
-  function apiBase() { return A.protocol + '://' + A.host + ':' + A.port }
-  function api(method, path, body) {
-    return fetch(apiBase() + path, {
-      method: method,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + (A.secret || ''),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    })
-  }
+  // ---------- root 执行 ----------
   function rootExec(cmd) {
     if (!hasRoot) return Promise.reject(new Error('no root bridge'))
     return new Promise(function (resolve) {
-      var out = window.ksu.exec(cmd)
-      resolve(out || '')
+      var out = ''
+      try { out = window.ksu.exec(cmd) || '' } catch (e) { out = '' }
+      resolve(out)
+    })
+  }
+
+  function getState() {
+    return rootExec(CTL + ' status').then(function (out) {
+      var m = (out || '').match(/state=(\w+)/)
+      return m ? m[1] : (hasRoot ? 'off' : 'unknown')
+    })
+  }
+  function waitRunning(sec) {
+    return getState().then(function (st) {
+      if (st === 'on') return true
+      if (sec <= 0) return false
+      return new Promise(function (res) { setTimeout(function () { res(waitRunning(sec - 2)) }, 2000) })
     })
   }
 
   // ---------- UI ----------
   var css = document.createElement('style')
   css.textContent = [
-    '#ksuc-panel-bubble{position:fixed;z-index:2147483647;right:14px;bottom:96px;width:44px;height:44px;',
+    '#ksuc-bubble{position:fixed;z-index:2147483647;right:14px;bottom:96px;width:44px;height:44px;',
     'border-radius:50%;background:#1f2937;color:#fbbf24;display:flex;align-items:center;justify-content:center;',
-    'font-size:19px;box-shadow:0 2px 10px rgba(0,0,0,.35);cursor:grab;user-select:none;touch-action:none;',
-    'opacity:.85;transition:opacity .2s;}#ksuc-panel-bubble:active{cursor:grabbing;opacity:1}',
-    '#ksuc-panel-card{position:fixed;z-index:2147483647;right:8px;bottom:148px;width:230px;',
-    'background:oklch(var(--b2,#1f2937));border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.3);',
-    'padding:12px 14px;font-size:13px;display:none;color:oklch(var(--bc,#e5e7eb))}',
-    '#ksuc-panel-card.show{display:block}',
-    '.ksuc-row{display:flex;gap:6px;margin-top:8px}',
-    '.ksuc-btn{flex:1;padding:7px 0;border-radius:9px;border:none;font-size:12.5px;cursor:pointer;',
-    'background:oklch(var(--pc,#3b82f6));color:#fff;font-weight:600}',
+    'font-size:19px;box-shadow:0 2px 10px rgba(0,0,0,.35);cursor:grab;user-select:none;touch-action:none;opacity:.85}',
+    '#ksuc-bubble:active{cursor:grabbing;opacity:1}',
+    '@media (prefers-color-scheme: light){#ksuc-card{background:#ffffff !important;color:#0f172a !important}',
+    '#ksuc-card .ksuc-btn{background:#e2e8f0 !important;color:#0f172a !important}',
+    '#ksuc-card .ksuc-btn.pri{background:#2563eb !important;color:#fff !important}',
+    '#ksuc-card .ksuc-btn.warn{background:#b91c1c !important;color:#fff !important}}',
+    '#ksuc-ov{position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);display:none;',
+    'align-items:center;justify-content:center}',
+    '#ksuc-ov.show{display:flex}',
+    '#ksuc-card{width:270px;background:#1f2937;color:#e5e7eb;border-radius:18px;padding:20px;',
+    'box-shadow:0 10px 40px rgba(0,0,0,.45);font-size:14px}',
+    '.ksuc-title{font-weight:700;font-size:16px;display:flex;align-items:center;gap:8px}',
+    '.ksuc-title .tag{font-size:11px;background:#334155;color:#cbd5e1;border-radius:99px;padding:2px 8px;font-weight:400}',
+    '.ksuc-status{margin:12px 0 4px;font-size:13px;line-height:1.5;word-break:break-all}',
+    '.ksuc-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:#9ca3af;vertical-align:middle}',
+    '.ksuc-dot.on{background:#22c55e}.ksuc-dot.panic{background:#ef4444}',
+    '.ksuc-row{display:flex;gap:8px;margin-top:12px}',
+    '.ksuc-btn{flex:1;padding:11px 0;border-radius:10px;border:none;font-size:13.5px;cursor:pointer;',
+    'background:#334155;color:#e5e7eb;font-weight:600}',
+    '.ksuc-btn.pri{background:#2563eb;color:#fff}',
     '.ksuc-btn.warn{background:#b91c1c;color:#fff}',
-    '.ksuc-btn.ghost{background:oklch(var(--bc,#94a3b8)/.12);color:oklch(var(--bc,#e5e7eb))}',
-    '.ksuc-title{font-weight:700;margin-bottom:2px}',
-    '.ksuc-status{font-size:11.5px;opacity:.75;word-break:break-all}',
-    '.ksuc-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;background:#9ca3af}',
-    '.ksuc-dot.on{background:#16a34a}.ksuc-dot.off{background:#9ca3af}.ksuc-dot.panic{background:#dc2626}',
+    '.ksuc-btn:active{filter:brightness(1.25)}',
+    '.ksuc-hint{font-size:11.5px;opacity:.6;margin-top:10px;line-height:1.6}',
+    '.ksuc-big{font-size:15px;font-weight:700;margin:8px 0 2px}',
   ].join('')
   document.head.appendChild(css)
 
   var bubble = document.createElement('div')
-  bubble.id = 'ksuc-panel-bubble'
+  bubble.id = 'ksuc-bubble'
   bubble.textContent = '⚡'
+  var ov = document.createElement('div')
+  ov.id = 'ksuc-ov'
   var card = document.createElement('div')
-  card.id = 'ksuc-panel-card'
-  card.innerHTML =
-    '<div class="ksuc-title">KSU Clash</div>' +
-    '<div class="ksuc-status" id="ksuc-status"><span class="ksuc-dot"></span>读取中…</div>' +
-    '<div class="ksuc-row" id="ksuc-core-row">' +
-    '<button class="ksuc-btn ghost" data-a="start">启动</button>' +
-    '<button class="ksuc-btn warn" data-a="stop">停止</button>' +
-    '<button class="ksuc-btn ghost" data-a="restart">重启</button>' +
-    '</div>' +
-    '<div class="ksuc-row">' +
-    '<button class="ksuc-btn ghost" data-m="rule">规则</button>' +
-    '<button class="ksuc-btn ghost" data-m="global">全局</button>' +
-    '<button class="ksuc-btn ghost" data-m="direct">直连</button>' +
-    '</div>'
+  card.id = 'ksuc-card'
+  ov.appendChild(card)
   document.body.appendChild(bubble)
-  document.body.appendChild(card)
+  document.body.appendChild(ov)
 
-  function $(id) { return document.getElementById(id) }
+  function html() {
+    return '<div class="ksuc-title">⚡ KSU Clash <span class="tag">mihomo</span></div>' +
+      '<div class="ksuc-status" id="ksuc-st">读取中…</div>' +
+      '<div id="ksuc-ctl"></div>' +
+      '<div class="ksuc-hint">拖动气泡可移动位置；核心操作经 root 桥执行。</div>'
+  }
+
+  // 视图：running=控制按钮; stopped=核心未运行提示
+  function renderRunning(st) {
+    var stEl = card.querySelector('#ksuc-st')
+    var ctl = card.querySelector('#ksuc-ctl')
+    var dot = st === 'on' ? 'on' : (st === 'panic' ? 'panic' : '')
+    var label = { on: '核心运行中', off: '核心未运行', starting: '启动中…', stopping: '停止中…', panic: '已熔断（反复异常）', unknown: '状态未知' }[st] || st
+    stEl.innerHTML = '<span class="ksuc-dot ' + dot + '"></span>' + label
+    if (!hasRoot) {
+      ctl.innerHTML = '<div class="ksuc-hint">当前环境无 root 桥，仅显示状态。核心管理请使用 KSU Clash App。</div>'
+      return
+    }
+    if (st === 'on') {
+      ctl.innerHTML = '<div class="ksuc-row">' +
+        '<button class="ksuc-btn" data-a="restart">重启核心</button>' +
+        '<button class="ksuc-btn warn" data-a="stop">停止</button></div>'
+    } else if (st === 'panic') {
+      ctl.innerHTML = '<div class="ksuc-row"><button class="ksuc-btn pri" data-a="resume">恢复并启动</button></div>'
+    } else {
+      ctl.innerHTML = '<div class="ksuc-row"><button class="ksuc-btn pri" data-a="start">启动核心</button></div>'
+    }
+  }
+
+  function renderBusy(text) {
+    card.querySelector('#ksuc-st').innerHTML = '<span class="ksuc-dot"></span>' + text
+    card.querySelector('#ksuc-ctl').innerHTML = ''
+  }
+
+  function renderStopped() {
+    var stEl = card.querySelector('#ksuc-st')
+    var ctl = card.querySelector('#ksuc-ctl')
+    stEl.innerHTML = '<span class="ksuc-dot"></span>核心未运行'
+    ctl.innerHTML = '<div class="ksuc-big">zashboard 面板不可用</div>' +
+      '<div class="ksuc-hint">核心停止后页面将无法连接后端。可点击下方按钮重新启动，完成后自动刷新。</div>' +
+      '<div class="ksuc-row">' +
+      (hasRoot ? '<button class="ksuc-btn pri" data-a="start">启动核心</button>' : '') +
+      '<button class="ksuc-btn" data-a="close">关闭</button></div>'
+  }
 
   function refresh() {
-    rootExec(CTL + ' status')
-      .catch(function () { return '' })
-      .then(function (out) {
-        var el = $('ksuc-status')
-        if (out && out.indexOf('state=') >= 0) {
-          var m = out.match(/state=(\w+)/)
-          var st = m ? m[1] : 'off'
-          var dot = st === 'on' ? 'on' : (st === 'panic' ? 'panic' : 'off')
-          var label = { on: '运行中', off: '已停止', starting: '启动中', stopping: '停止中', panic: '熔断(看门狗)' }[st] || st
-          var extra = ''
-          var pm = out.match(/panel=(\S+)/)
-          if (out.indexOf('pid=') >= 0) extra = (out.match(/pid=(-?\d+)/) || [])[1]
-          el.innerHTML = '<span class="ksuc-dot ' + dot + '"></span>' + label +
-            (extra && extra !== '-1' ? ' · pid ' + extra : '')
-          $('ksuc-core-row').style.display = hasRoot ? 'flex' : 'none'
-        } else if (hasRoot) {
-          el.innerHTML = '<span class="ksuc-dot off"></span>clashctl 不可用'
+    getState().then(function (st) {
+      if (st === 'off') renderStopped()
+      else renderRunning(st)
+    })
+  }
+
+  function act(a) {
+    if (!hasRoot) return
+    if (a === 'close') { ov.classList.remove('show'); return }
+    if (a === 'stop') {
+      renderBusy('停止中…')
+      rootExec(CTL + ' stop').then(function () { setTimeout(refresh, 500) })
+      return
+    }
+    // start / resume / restart：完成后刷新 zash 面板
+    var cmd = a === 'resume' ? 'resume' : a
+    renderBusy(cmd === 'restart' ? '重启中…' : '启动中…')
+    rootExec(CTL + ' ' + cmd).then(function () {
+      waitRunning(35).then(function (ok) {
+        if (ok) {
+          renderBusy('已启动，正在刷新面板…')
+          setTimeout(function () { location.reload() }, 600)
         } else {
-          el.innerHTML = '<span class="ksuc-dot"></span>浏览器模式: 仅模式切换'
+          refresh()
         }
       })
-  }
-
-  function action(name) {
-    if (!hasRoot) return
-    rootExec(CTL + ' ' + name).then(function (out) { refresh() })
-  }
-
-  function mode(m) {
-    if (hasRoot) {
-      rootExec(CTL + ' mode ' + m).then(function () { refresh() })
-    } else {
-      api('PATCH', '/configs', { mode: m }).then(function () { refresh() }).catch(function () {})
-    }
+    })
   }
 
   bubble.addEventListener('click', function (e) {
     if (dragged) return
-    card.classList.toggle('show')
-    if (card.classList.contains('show')) refresh()
+    if (!card.innerHTML) card.innerHTML = html()
+    ov.classList.add('show')
+    refresh()
   })
-
-  card.addEventListener('click', function (e) {
+  ov.addEventListener('click', function (e) {
+    if (e.target === ov) { ov.classList.remove('show'); return }
     var t = e.target
-    if (t.dataset && t.dataset.a) action(t.dataset.a)
-    if (t.dataset && t.dataset.m) mode(t.dataset.m)
+    if (t.dataset && t.dataset.a) act(t.dataset.a)
   })
 
   // ---------- 拖拽（保存位置） ----------
@@ -195,13 +232,4 @@
       bubble.style.left = pos[0]; bubble.style.top = pos[1]
     }
   } catch (e) {}
-
-  // 初始刷新一次（若面板是展开状态）
-  refresh()
-  // 点击卡片外自动收起
-  document.addEventListener('click', function (e) {
-    if (!card.classList.contains('show')) return
-    if (card.contains(e.target) || bubble.contains(e.target)) return
-    card.classList.remove('show')
-  }, true)
 })()

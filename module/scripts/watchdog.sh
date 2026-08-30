@@ -92,7 +92,56 @@ while :; do
             _out=$(sh "$SCR_DIR/clashctl" start 2>&1)
             echo "$_out" | tail -2 >> "$LOG_FILE"
         fi
-    else
-        $BB rm -f "$STATE_DIR/.tunmiss" 2>/dev/null
+        continue
+    fi
+    $BB rm -f "$STATE_DIR/.tunmiss" 2>/dev/null
+
+    # ---- API 健康探测：检测"进程活着但挂死"（隧道/API 全停的流量黑洞态）----
+    _code=$(api_code GET /version 2>/dev/null)
+    case "$_code" in
+        *HTTP*) $BB echo 0 > "$STATE_DIR/.probe_fail"; continue ;;  # 有任何 HTTP 响应即健康
+    esac
+    _pf=$(cat "$STATE_DIR/.probe_fail" 2>/dev/null)
+    case "$_pf" in ''|*[!0-9]*) _pf=0 ;; esac
+    _pf=$((_pf + 1))
+    $BB echo "$_pf" > "$STATE_DIR/.probe_fail"
+    log "api probe FAILED ($_pf)"
+    [ "$_pf" -lt 2 ] && continue
+
+    # ---- 挂死确认：取证 → SIGQUIT 抓 goroutine 栈 → 强杀 → 重启 ----
+    $BB echo "===== HANG DETECTED $(date) =====" >> "$DATA_DIR/hangdump.log"
+    {
+        $BB echo "--- /proc/$_p/status ---"
+        $BB grep -E '^(Name|State|Frozen|Threads)' "/proc/$_p/status" 2>/dev/null
+        $BB echo "--- wchan ---"; $BB cat "/proc/$_p/wchan" 2>/dev/null; $BB echo
+        $BB echo "--- cgroup ---"; $BB head -2 "/proc/$_p/cgroup" 2>/dev/null
+    } >> "$DATA_DIR/hangdump.log" 2>/dev/null
+    log "HANG detected: SIGQUIT for goroutine dump, then kill"
+    $BB echo "[watchdog] 挂死取证: 发送 SIGQUIT" >> "$LOG_FILE"
+    kill -QUIT "$_p" 2>/dev/null
+    sleep 3
+    kill -9 "$_p" 2>/dev/null
+    $BB rm -f "$PID_FILE" "$STATE_DIR/.probe_fail"
+    _n=$(crash_bump "$(date +%s)")
+    log "hang auto-recovery (count=$_n)"
+    if [ "$_n" -ge "$MAX_CRASH" ]; then
+        echo "反复挂死${_n}次，已自动熔断 $(date "+%m-%d %H:%M")" > "$PANIC_FILE"
+        set_tile panic
+        log "PANIC: repeated hangs"
+        cleanup_self
+    fi
+    set_tile starting
+    _out=$(sh "$SCR_DIR/clashctl" start 2>&1)
+    _rc=$?
+    echo "$_out" | tail -2 >> "$LOG_FILE"
+    if [ $_rc -ne 0 ]; then
+        log "hang-recovery restart failed rc=$_rc"
+        _n2=$(crash_bump "$(date +%s)")
+        if [ "$_n2" -ge "$MAX_CRASH" ]; then
+            echo "启动反复失败，已自动熔断 $(date "+%m-%d %H:%M")" > "$PANIC_FILE"
+            set_tile panic
+            log "PANIC: restart keeps failing"
+            cleanup_self
+        fi
     fi
 done

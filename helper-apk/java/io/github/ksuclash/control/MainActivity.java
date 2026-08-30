@@ -1,201 +1,153 @@
 package io.github.ksuclash.control;
 
-import android.Manifest;
 import android.app.Activity;
-import android.content.pm.PackageManager;
-import android.graphics.Typeface;
-import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.text.method.ScrollingMovementMethod;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
-/** 控制台：状态、启停、模式、自启开关、日志。 */
+/**
+ * KSU Clash 主界面：核心运行中 → 全屏 WebView 加载 zashboard（注入与 KSU 管理器
+ * 同名的 ksu root 桥，悬浮面板同一套代码）；核心未运行 → 原生提示页（启动核心）。
+ */
 public class MainActivity extends Activity {
-    public static final Handler mainHandler = new Handler(Looper.getMainLooper());
+    public static final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
 
-    private TextView status;
-    private TextView log;
-    private Switch autostart;
-    private boolean hasRoot = false;
+    private WebView web;
+    private ViewGroup hintView;
+    private String panelUrl = null;
+    private boolean started = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestNotifPermission();
-        buildUi();
-        refresh();
+        refreshEntry();
     }
 
     @Override
-    protected void onResume() { super.onResume(); refresh(); }
+    protected void onResume() {
+        super.onResume();
+        if (!started) refreshEntry();
+        TileState.sync(this);
+    }
 
     private void requestNotifPermission() {
-        if (Build.VERSION.SDK_INT >= 33 &&
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                        != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 1);
         }
     }
 
-    private Button btn(String text, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setOnClickListener(l);
-        return b;
+    /** 读取核心状态，决定进入 webview 还是提示页。 */
+    private void refreshEntry() {
+        Root.execAsync("sh " + Root.SCRIPT + " status; sh " + Root.SCRIPT + " panel", r -> {
+            String out = r.out == null ? "" : r.out;
+            java.util.regex.Matcher sm = java.util.regex.Pattern
+                    .compile("state=(\\w+)").matcher(out);
+            String st = sm.find() ? sm.group(1) : "noroot";
+            String url = null;
+            java.util.regex.Matcher pm = java.util.regex.Pattern
+                    .compile("panel=(http\\S+)").matcher(out);
+            if (pm.find()) url = pm.group(1);
+            final String state = st, purl = url;
+            mainHandler.post(() -> {
+                if ("on".equals(state) && purl != null) {
+                    showWeb(purl);
+                } else {
+                    showHint("noroot".equals(state) ? "无法连接 root shell\n\n请在 KernelSU 管理器中授权本应用后重试。"
+                            : "核心未运行\n\n启动后自动进入 zashboard 面板。");
+                }
+            });
+        });
     }
 
-    private LinearLayout row(LinearLayout parent) {
-        LinearLayout r = new LinearLayout(this);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(8);
-        r.setLayoutParams(lp);
-        parent.addView(r);
-        return r;
+    private void showHint(String text) {
+        started = false;
+        setContentView(buildHint(text));
     }
 
-    private void addTo(LinearLayout rowView, Button b) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        lp.setMargins(dp(4), 0, dp(4), 0);
-        rowView.addView(b, lp);
-    }
-
-    private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density); }
-
-    private void buildUi() {
+    private View buildHint(String text) {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16), dp(16), dp(16), dp(16));
+        root.setPadding(dp(20), dp(20), dp(20), dp(20));
         scroll.addView(root, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
-        setContentView(scroll);
+        hintView = root;
 
         TextView title = new TextView(this);
-        title.setText("⚡ KSU Clash 控制台");
-        title.setTextSize(18);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setText("⚡ KSU Clash  [mihomo]");
+        title.setTextSize(19);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         root.addView(title);
 
-        status = new TextView(this);
-        status.setPadding(0, dp(10), 0, dp(4));
-        status.setText("读取状态中…");
-        status.setTextSize(13);
+        TextView status = new TextView(this);
+        status.setText(text);
+        status.setTextSize(14);
+        status.setPadding(0, dp(16), 0, dp(4));
         root.addView(status);
 
-        LinearLayout r1 = row(root);
-        addTo(r1, btn("启动", v -> ctl("start")));
-        addTo(r1, btn("停止", v -> ctl("stop")));
-        addTo(r1, btn("重启", v -> ctl("restart")));
-
-        LinearLayout r2 = row(root);
-        addTo(r2, btn("规则模式", v -> ctl("mode rule")));
-        addTo(r2, btn("全局模式", v -> ctl("mode global")));
-        addTo(r2, btn("直连模式", v -> ctl("mode direct")));
-
-        autostart = new Switch(this);
-        autostart.setText("开机自启");
-        autostart.setPadding(dp(4), dp(10), 0, dp(4));
-        autostart.setOnCheckedChangeListener((b, on) ->
-                ctl(on ? "enable" : "disable"));
-        root.addView(autostart);
-
-        LinearLayout r3 = row(root);
-        addTo(r3, btn("打开 zashboard 面板", v -> openPanel()));
-        addTo(r3, btn("刷新日志", v -> tailLog()));
-
-        log = new TextView(this);
-        log.setTypeface(Typeface.MONOSPACE);
-        log.setTextSize(10);
-        log.setPadding(dp(8), dp(8), dp(8), dp(8));
-        log.setBackgroundColor(0x22000000);
-        log.setMovementMethod(new ScrollingMovementMethod());
-        log.setText("(日志)");
+        Button start = new Button(this);
+        start.setText("启动核心");
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(180));
-        lp.topMargin = dp(10);
-        root.addView(log, lp);
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(16);
+        start.setLayoutParams(lp);
+        start.setOnClickListener(v -> startCore());
+        root.addView(start);
+
+        Button reload = new Button(this);
+        reload.setText("重新检测");
+        reload.setOnClickListener(v -> refreshEntry());
+        root.addView(reload);
 
         TextView hint = new TextView(this);
-        hint.setTextSize(11);
-        hint.setPadding(dp(4), dp(8), 0, 0);
-        hint.setText("若无法 root：请在 KernelSU 管理器「超级用户」中授权本应用。\n面板也可用手机浏览器访问 http://127.0.0.1:9090/ui/");
+        hint.setTextSize(11.5f);
+        hint.setPadding(0, dp(12), 0, 0);
+        hint.setText("提示：若启动按钮无效，请在 KernelSU 管理器「超级用户」中授权本应用。\n核心运行后本应用即 zashboard 面板，核心启停等操作在面板右下角悬浮窗中。");
         root.addView(hint);
+        return scroll;
     }
 
-    private void ctl(String args) {
-        Toast.makeText(this, "执行: " + args, Toast.LENGTH_SHORT).show();
-        Root.ctlAsync(args, r -> {
-            if (!r.ok() && r.err.contains("Permission denied"))
-                toast("root 被拒绝，请在管理器中授权");
-            mainHandler.postDelayed(this::refresh, 500);
-        });
+    private void startCore() {
+        Toast.makeText(this, "正在启动核心…", Toast.LENGTH_SHORT).show();
+        Root.ctlAsync("start", r -> mainHandler.postDelayed(this::refreshEntry, 800));
     }
 
-    private void toast(String s) {
-        Toast.makeText(this, s, Toast.LENGTH_LONG).show();
+    private void showWeb(String url) {
+        started = true;
+        panelUrl = url;
+        web = new WebView(this);
+        web.getSettings().setJavaScriptEnabled(true);
+        web.getSettings().setDomStorageEnabled(true);
+        web.getSettings().setCacheMode(android.webkit.WebSettings.LOAD_NO_CACHE);
+        web.setBackgroundColor(0xFF0F172A);
+        web.addJavascriptInterface(new KsuBridge(), "ksu");
+        web.setWebViewClient(new WebViewClient());
+        setContentView(web);
+        web.loadUrl(url);
     }
 
-    private String panelUrl = null;
-
-    private void openPanel() {
-        Root.ctlAsync("panel", r -> {
-            String url = r.out == null ? "" : r.out.trim();
-            if (url.startsWith("http://")) panelUrl = url;
-            try {
-                android.content.Intent i = new android.content.Intent(
-                        android.content.Intent.ACTION_VIEW,
-                        android.net.Uri.parse(panelUrl != null ? panelUrl : "http://127.0.0.1:9090/ui/"));
-                i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(i);
-            } catch (Exception e) {
-                toast("没有可用的浏览器: " + e.getMessage());
-            }
-        });
+    @Override
+    public void onBackPressed() {
+        if (web != null && web.canGoBack()) web.goBack();
+        else super.onBackPressed();
     }
 
-    private void refresh() {
-        Root.execAsync("sh /data/adb/modules/ksuclash/scripts/clashctl status; "
-                + "cat /data/adb/ksuclash/state/enabled 2>/dev/null; "
-                + "cat /data/adb/ksuclash/state/panic 2>/dev/null", r -> {
-            hasRoot = r.ok() || (r.out != null && r.out.contains("state="));
-            String out = r.out == null ? "" : r.out;
-            if (!hasRoot) {
-                status.setText("⚠ 无法连接 root shell\n" + r.err
-                        + "\n\n请在 KernelSU 管理器中授权本应用后重试。");
-                return;
-            }
-            String[] lines = out.split("\n");
-            String st = lines.length > 0 ? lines[0] : "";
-            String tile = st.replaceFirst("^state=", "状态: ");
-            status.setText(tile + (st.startsWith("state=panic") ? "\n(看门狗已熔断，可点「启动」恢复)" : ""));
-            boolean auto = false;
-            for (String l : lines) {
-                if (l.trim().equals("1")) { auto = true; break; }
-            }
-            autostart.setOnCheckedChangeListener(null);
-            autostart.setChecked(auto);
-            autostart.setOnCheckedChangeListener((b, on) -> ctl(on ? "enable" : "disable"));
-            tailLog();
-        });
+    @Override
+    protected void onDestroy() {
+        if (web != null) web.destroy();
+        super.onDestroy();
     }
 
-    private void tailLog() {
-        Root.execAsync("tail -60 /data/adb/ksuclash/logs/mihomo.log 2>/dev/null; "
-                + "echo ---module.log---; "
-                + "tail -10 /data/adb/ksuclash/module.log 2>/dev/null", r ->
-                mainHandler.post(() -> log.setText(r.out == null || r.out.isEmpty() ? "(暂无日志)" : r.out)));
-    }
+    private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density); }
 }

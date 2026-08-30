@@ -7,7 +7,9 @@ import java.util.concurrent.TimeUnit;
 
 /** su 执行封装。首次调用会触发 KernelSU 管理器的授权弹窗。 */
 public final class Root {
-    private static final String CTL = "/data/adb/modules/ksuclash/scripts/clashctl";
+    /** clashctl 脚本路径（App 内部与 JS 桥共用） */
+    public static final String SCRIPT = "/data/adb/modules/ksuclash/scripts/clashctl";
+    private static final String CTL = SCRIPT;
 
     public static class Result {
         public final int code;

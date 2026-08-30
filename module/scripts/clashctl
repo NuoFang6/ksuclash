@@ -113,6 +113,15 @@ do_start() {
     set_tile on
     log "core started (pid $_pid), api ready after $((_i + 1))s"
 
+    # 根因防御：脱离 App freezer cgroup（经管理器 su 启动时 mihomo 会继承管理器的
+    # uid_xxx 冻结组；系统后台冻结该组时隧道整体黑洞）。移入 system 组（不受冻结）。
+    [ -f /sys/fs/cgroup/system/cgroup.procs ] && \
+        $BB echo "$_pid" > /sys/fs/cgroup/system/cgroup.procs 2>/dev/null
+    # v1 控制器尽力迁移（老内核兜底）
+    for _f in /dev/cpuset/top-app/tasks /dev/cpuset/tasks; do
+        [ -w "$_f" ] && $BB echo "$_pid" > "$_f" 2>/dev/null
+    done
+
     # 启动看门狗（独立进程）
     stop_watchdog
     nohup sh "$SCR_DIR/watchdog.sh" > /dev/null 2>&1 < /dev/null &

@@ -64,7 +64,7 @@ api() {
         $BB printf 'Content-Type: application/json\r\nConnection: close\r\n'
         $BB printf 'Content-Length: %s\r\n\r\n' "$_len"
         [ -n "$_b" ] && $BB printf '%s' "$_b"
-    } | $BB nc "$API_ADDR" 2>/dev/null | $BB sed '1s/^[^ ]* \([0-9][0-9][0-9]\).*/HTTP_CODE:\1/' | $BB awk '/^HTTP_CODE:/{next} {print}'
+    } | timeout 6 $BB nc "$API_ADDR" 2>/dev/null | $BB sed '1s/^[^ ]* \([0-9][0-9][0-9]\).*/HTTP_CODE:\1/' | $BB awk '/^HTTP_CODE:/{next} {print}'
 }
 
 api_code() {  # 仅返回 HTTP 状态码
@@ -79,7 +79,7 @@ api_code() {  # 仅返回 HTTP 状态码
         [ -n "$_h" ] && $BB printf '%s\r\n' "$_h"
         $BB printf 'Content-Type: application/json\r\nConnection: close\r\nContent-Length: %s\r\n\r\n' "$_len"
         [ -n "$_b" ] && $BB printf '%s' "$_b"
-    } | $BB nc "$API_ADDR" 2>/dev/null | $BB head -1
+    } | timeout 6 $BB nc "$API_ADDR" 2>/dev/null | $BB head -1
 }
 
 # 核心进程 pid（-1 表示未运行）
