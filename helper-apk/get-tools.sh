@@ -31,7 +31,8 @@ if [ ! -f "$TOOLS/android.jar" ]; then
     if [ "$WIN" = 1 ]; then CTL_ZIP=commandlinetools-win-13114758_latest.zip; SDKM=sdk/cmdline-tools/latest/bin/sdkmanager.bat
     else CTL_ZIP=commandlinetools-linux-13114758_latest.zip; SDKM=sdk/cmdline-tools/latest/bin/sdkmanager; fi
     curl -sSL -o ctl.zip "https://dl.google.com/android/repository/$CTL_ZIP"
-    "$TAR" -xf ctl.zip
+    # GNU tar 不能解 zip（Windows 自带 bsdtar 可以），Linux 用 unzip
+    if [ "$WIN" = 1 ]; then "$TAR" -xf ctl.zip; else unzip -qo ctl.zip; fi
     mkdir -p sdk/cmdline-tools
     mv cmdline-tools "$TOOLS/sdk/cmdline-tools/latest"
     rm -f ctl.zip
