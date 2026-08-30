@@ -1,0 +1,6 @@
+id=ksuclash
+name=KSU Clash (mihomo)
+version=v1.0.0
+versionCode=10000
+author=nuofang
+description=mihomo TUN 代理（非VpnService）。控制中心磁贴+通知快捷操作，zashboard 面板（管理器WebUI入口），看门狗熔断保护，卸载无残留。

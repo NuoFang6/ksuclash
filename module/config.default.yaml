@@ -1,0 +1,51 @@
+# KSU Clash 默认配置模板（首次安装自动放置，请替换为你自己的配置）
+# 建议直接填入你原来的 clash.yaml（TUN 段会自动兼容）。
+
+mode: rule
+log-level: info
+ipv6: true
+unified-delay: true
+tcp-concurrent: true
+find-process-mode: strict
+
+external-controller: 127.0.0.1:9090
+secret: ""
+external-ui: /data/adb/modules/ksuclash/ui
+
+profile:
+  store-selected: true
+  store-fake-ip: true
+
+tun:
+  enable: true
+  stack: mixed
+  auto-route: true
+  auto-detect-interface: true
+  strict-route: false
+  dns-hijack:
+    - 0.0.0.0:53
+
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - "*"
+    - "+.lan"
+    - "+.local"
+  nameserver:
+    - system
+    - udp://223.5.5.5
+  default-nameserver:
+    - 223.5.5.5
+
+proxies: []
+
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - DIRECT
+
+rules:
+  - MATCH,PROXY

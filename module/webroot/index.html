@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>KSU Clash 控制台</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "MiSans", "HarmonyOS Sans", sans-serif;
+    background: #0f172a; color: #e2e8f0; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  @media (prefers-color-scheme: light) {
+    body { background: #f1f5f9; color: #0f172a; }
+    .card { background: #fff !important; box-shadow: 0 8px 30px rgba(0,0,0,.08) !important; }
+    .log { background: #f8fafc !important; }
+  }
+  .card {
+    width: 100%; max-width: 420px; background: #1e293b;
+    border-radius: 18px; padding: 22px; box-shadow: 0 8px 30px rgba(0,0,0,.35);
+  }
+  h1 { font-size: 17px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: #334155; }
+  .status { margin: 14px 0; font-size: 13px; line-height: 1.7; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #64748b; margin-right: 6px; }
+  .dot.on { background: #22c55e; box-shadow: 0 0 8px #22c55e88; }
+  .dot.panic { background: #ef4444; box-shadow: 0 0 8px #ef444488; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 14px 0; }
+  button {
+    border: none; border-radius: 10px; padding: 11px 0; font-size: 14px; font-weight: 600;
+    background: #334155; color: #e2e8f0; cursor: pointer; transition: filter .15s;
+  }
+  button:active { filter: brightness(1.3); }
+  button.primary { background: #2563eb; }
+  button.danger { background: #b91c1c; color: #fff; }
+  button.wide { width: 100%; margin-top: 4px; }
+  .log {
+    margin-top: 12px; background: #0f172a; color: #94a3b8; font: 11px/1.5 ui-monospace, monospace;
+    border-radius: 10px; padding: 10px; height: 130px; overflow: auto; white-space: pre-wrap;
+  }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  a.link { color: #60a5fa; font-size: 12px; text-decoration: none; }
+  input[type=file] { display: none }
+  .hint { font-size: 11px; opacity: .6; margin-top: 10px; line-height: 1.6 }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>⚡ KSU Clash <span class="badge" id="ver">mihomo</span></h1>
+  <div class="status" id="status"><span class="dot"></span>读取状态中…</div>
+
+  <div class="grid">
+    <button class="primary" onclick="ctl('start')">启动</button>
+    <button class="danger" onclick="ctl('stop')">停止</button>
+    <button onclick="ctl('restart')">重启</button>
+  </div>
+  <div class="grid">
+    <button onclick="ctl('mode rule')">规则模式</button>
+    <button onclick="ctl('mode global')">全局模式</button>
+    <button onclick="ctl('mode direct')">直连模式</button>
+  </div>
+  <div class="row2">
+    <button class="primary" onclick="openPanel()">打开 zashboard 面板</button>
+    <button onclick="importCfg()">导入配置文件</button>
+  </div>
+  <button class="wide" onclick="tailLog()">刷新日志</button>
+  <input type="file" id="file" accept=".yaml,.yml" onchange="onFile(this)" />
+  <div class="log" id="log">日志区域</div>
+  <div class="hint">
+    若管理器内无法跳转面板，可在手机浏览器打开 <span class="link" id="panelurl">http://127.0.0.1:9090/ui/</span><br/>
+    修改配置后点「重启」生效；导入配置会覆盖 /data/adb/ksuclash/config.yaml
+  </div>
+</div>
+<script>
+const CTL = '/data/adb/modules/ksuclash/scripts/clashctl'
+const hasKsu = typeof window.ksu !== 'undefined' && typeof window.ksu.exec === 'function'
+
+function run(cmd) {
+  if (!hasKsu) return Promise.resolve('错误: 未检测到 KernelSU root 桥（请从管理器打开本页）')
+  try { return Promise.resolve(window.ksu.exec(cmd) || '') }
+  catch (e) { return Promise.reject(e) }
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML }
+
+function refresh() {
+  run(CTL + ' status').then(out => {
+    const st = (out.match(/state=(\w+)/) || [])[1] || 'off'
+    const dot = st === 'on' ? 'on' : (st === 'panic' ? 'panic' : '')
+    const label = { on: '核心运行中', off: '已停止', starting: '启动中…', stopping: '停止中…', panic: '熔断保护中' }[st] || st
+    let html = `<span class="dot ${dot}"></span>${label}`
+    if (out) html += '<br>' + esc(out.split('\n').slice(1).join('  ').trim())
+    document.getElementById('status').innerHTML = html
+    const panel = (out.match(/panel=(\S+)/) || [])[1]
+    if (panel) document.getElementById('panelurl').textContent = panel
+    const ver = (out.match(/api=(\{[^}]*\})/) || [])[1]
+    if (ver && ver.indexOf('version') > -1) {
+      try { document.getElementById('ver').textContent = JSON.parse(ver).version || 'mihomo' } catch (e) {}
+    }
+  })
+}
+function ctl(args) { run(CTL + ' ' + args).then(() => setTimeout(refresh, 300)) }
+function openPanel() {
+  const url = document.getElementById('panelurl').textContent
+  location.href = url
+}
+function tailLog() { run('tail -40 /data/adb/ksuclash/logs/mihomo.log').then(out => { document.getElementById('log').textContent = out || '(空)' }) }
+function importCfg() { document.getElementById('file').click() }
+function onFile(input) {
+  const f = input.files[0]
+  if (!f) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    const b64 = btoa(unescape(encodeURIComponent(reader.result)))
+    if (!confirm(`将 ${f.name} 导入为模块配置并重启核心？`)) return
+    run(`echo ${b64} | base64 -d > /data/adb/ksuclash/config.yaml && rm -f /data/adb/ksuclash/runtime.yaml`)
+      .then(() => ctl('restart'))
+  }
+  reader.readAsText(f, 'utf-8')
+}
+refresh(); tailLog()
+</script>
+</body>
+</html>

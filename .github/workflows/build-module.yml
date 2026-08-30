@@ -1,0 +1,102 @@
+name: build-module
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'module/**'
+      - 'helper-apk/**'
+      - 'scripts-dev/**'
+      - '.github/workflows/**'
+    tags: [ 'v*' ]
+  workflow_dispatch:
+  schedule:
+    # 每周一 03:00 UTC 自动重建：拉取最新 mihomo / zashboard 等依赖（自更新）
+    - cron: '0 3 * * 1'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install pnpm (corepack)
+        run: corepack enable && corepack prepare pnpm@latest --activate
+
+      - name: Resolve latest mihomo release
+        id: mihomo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(gh api repos/MetaCubeX/mihomo/releases/latest --jq .tag_name)
+          URL=$(gh api repos/MetaCubeX/mihomo/releases/latest \
+            --jq '.assets[] | select(.name | contains("android-arm64-v8")) | .browser_download_url' | head -1)
+          SHA=$(gh api repos/MetaCubeX/mihomo/releases/latest \
+            --jq '.assets[] | select(.name | contains("android-arm64-v8")) | .browser_download_url' >/dev/null; echo "")
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "mihomo: $VER -> $URL"
+
+      - name: Download mihomo (android-arm64)
+        run: |
+          curl -sSL -o /tmp/mihomo.gz "${{ steps.mihomo.outputs.url }}"
+          gunzip -c /tmp/mihomo.gz > module/bin/mihomo
+          chmod +x module/bin/mihomo
+          file module/bin/mihomo | tee /dev/stderr | grep -q 'ELF 64-bit.*ARM aarch64'
+
+      - name: Build zashboard (latest main, no bundled fonts)
+        run: |
+          git clone --depth 1 https://github.com/Zephyruso/zashboard zashboard
+          cd zashboard
+          pnpm install --frozen-lockfile
+          FONT=none pnpm build
+
+      - name: Package UI with floating panel
+        run: node scripts-dev/patch-ui.mjs zashboard/dist module
+
+      - name: Build helper APK
+        run: |
+          bash helper-apk/get-tools.sh
+          bash helper-apk/build-apk.sh
+
+      - name: Stamp version into module.prop
+        run: |
+          DATE=$(date +%Y%m%d)
+          CODE=$(date +%s | cut -c3-10)
+          VER="v1.0.0-${DATE}-mihomo${{ steps.mihomo.outputs.version }}"
+          sed -i "s/^version=.*/version=$VER/; s/^versionCode=.*/versionCode=$CODE/" module/module.prop
+          cat module/module.prop
+
+      - name: Assemble module zip
+        run: |
+          NAME="ksuclash-${{ steps.mihomo.outputs.version }}-$(date +%Y%m%d)"
+          cd module
+          zip -qr "../$NAME.zip" .
+          cd ..
+          unzip -l "$NAME.zip" | head -20
+          echo "ZIP_NAME=$NAME" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}.zip
+          if-no-files-found: error
+
+      - name: Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP_NAME }}.zip
+          generate_release_notes: true
