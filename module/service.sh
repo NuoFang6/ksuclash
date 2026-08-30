@@ -28,6 +28,13 @@ export PATH
     done
 
     mkdir -p /data/adb/ksuclash/state /data/adb/ksuclash/logs 2>/dev/null
+    # 本次开机的新日志（避免跨启动累积的旧错误干扰排查）
+    : > /data/adb/ksuclash/logs/boot.log 2>/dev/null
+
+    # 权限兜底：安装器解压可能丢失可执行位
+    chmod 755 "$MODDIR/bin/mihomo" 2>/dev/null
+    chmod 755 "$MODDIR/scripts/"* 2>/dev/null
+    chmod 755 "$MODDIR/"*.sh 2>/dev/null
 
     if [ -f /data/adb/ksuclash/state/enabled ]; then
         [ "$(cat /data/adb/ksuclash/state/enabled 2>/dev/null)" != "0" ] && \

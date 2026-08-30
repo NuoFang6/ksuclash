@@ -65,7 +65,10 @@ echo ">> zipalign"
 "$ZIPALIGN" -f 4 "$BUILD/app.apk" "$BUILD/aligned.apk"
 
 echo ">> apksigner"
-"$APKSIGNER" sign --ks "$TOOLS/ksuclash.keystore" --ks-key-alias ksuclash \
+# 签名密钥优先用仓库内置（CI 与本地产物签名一致，升级可覆盖安装）
+KS="$APK/ksuclash.keystore"
+[ -f "$KS" ] || KS="$TOOLS/ksuclash.keystore"
+"$APKSIGNER" sign --ks "$KS" --ks-key-alias ksuclash \
     --ks-pass pass:ksuclash123 --key-pass pass:ksuclash123 \
     --out "$ROOT/module/bin/MihomoControl.apk" "$BUILD/aligned.apk"
 "$APKSIGNER" verify --print-certs "$ROOT/module/bin/MihomoControl.apk" | head -3

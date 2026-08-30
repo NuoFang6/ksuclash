@@ -94,6 +94,10 @@
     '.ksuc-btn:active{filter:brightness(1.25)}',
     '.ksuc-hint{font-size:11.5px;opacity:.6;margin-top:10px;line-height:1.6}',
     '.ksuc-big{font-size:15px;font-weight:700;margin:8px 0 2px}',
+    '.ksuc-log{display:none;margin-top:10px;background:rgba(0,0,0,.4);color:#cbd5e1;',
+    'font:10.5px/1.5 ui-monospace,monospace;padding:8px;border-radius:8px;',
+    'max-height:170px;overflow:auto;white-space:pre-wrap;word-break:break-all}',
+    '@media (prefers-color-scheme: light){#ksuc-log{background:#f1f5f9;color:#334155}}',
   ].join('')
   document.head.appendChild(css)
 
@@ -112,7 +116,20 @@
     return '<div class="ksuc-title">⚡ KSU Clash <span class="tag">mihomo</span></div>' +
       '<div class="ksuc-status" id="ksuc-st">读取中…</div>' +
       '<div id="ksuc-ctl"></div>' +
+      '<div class="ksuc-row">' +
+      '<button class="ksuc-btn" data-a="mlog">模块日志</button>' +
+      '<button class="ksuc-btn" data-a="logrefresh">刷新日志</button></div>' +
+      '<pre id="ksuc-log" class="ksuc-log">（模块日志 /data/adb/ksuclash/module.log）</pre>' +
       '<div class="ksuc-hint">拖动气泡可移动位置；核心操作经 root 桥执行。</div>'
+  }
+
+  function loadLog() {
+    var el = card.querySelector('#ksuc-log')
+    if (!el || el.style.display === 'none') return
+    rootExec('tail -n 40 /data/adb/ksuclash/module.log 2>/dev/null').then(function (out) {
+      el.textContent = (out && out.trim()) ? out.trim() : '（暂无日志）'
+      el.scrollTop = el.scrollHeight
+    })
   }
 
   // 视图：running=控制按钮; stopped=核心未运行提示
@@ -163,6 +180,13 @@
   function act(a) {
     if (!hasRoot) return
     if (a === 'close') { ov.classList.remove('show'); return }
+    if (a === 'mlog') {
+      var el = card.querySelector('#ksuc-log')
+      el.style.display = el.style.display === 'block' ? 'none' : 'block'
+      loadLog()
+      return
+    }
+    if (a === 'logrefresh') { loadLog(); return }
     if (a === 'stop') {
       renderBusy('停止中…')
       rootExec(CTL + ' stop').then(function () { setTimeout(refresh, 500) })
@@ -188,6 +212,7 @@
     if (!card.innerHTML) card.innerHTML = html()
     ov.classList.add('show')
     refresh()
+    setTimeout(loadLog, 500)
   })
   ov.addEventListener('click', function (e) {
     if (e.target === ov) { ov.classList.remove('show'); return }

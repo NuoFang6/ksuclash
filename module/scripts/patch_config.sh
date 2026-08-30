@@ -27,6 +27,8 @@ BEGIN {
         if (key == "tun" || key == "dns") { sect = key; seen[key] = 1 }
         else { sect = "" }
         if (key == "external-controller") seen_ec = 1
+        # external-ui 属于模块基础设施：zashboard 必须位于 home 目录下
+        # （mihomo 要求 external-ui 是 home 的子路径），用户配置里的旧值一律覆盖。
         if (key == "external-ui") seen_eui = 1
         if (key == "secret") seen_secret = 1
     }
@@ -64,7 +66,8 @@ END {
     if (dns_insert)  print "#   - dns 段缺少 enable, 已插入 enable: true"
     if (!seen["dns"]) print "#   - 缺少 dns 段, 已追加(fake-ip + hijack 兜底)"
     if (!seen_ec)    print "#   - 缺少 external-controller, 已追加 127.0.0.1:9090"
-    if (!seen_eui)   print "#   - 缺少 external-ui, 已指向模块内置 zashboard"
+    if (seen_eui)    print "#   - external-ui 已覆盖为模块内置 zashboard (原值不可用: 必须在 home 目录下)"
+    else             print "#   - 缺少 external-ui, 已指向模块内置 zashboard"
     print ""
 
     # ---- 输出原配置（带补丁）----
@@ -98,6 +101,11 @@ END {
             print line
             ind = line; sub(/[^ \t].*$/, "", ind); if (ind == "") ind = "  "
             print ind "enable: true"
+            continue
+        }
+        # external-ui 强制覆盖为模块内置 zashboard（home 目录子路径）
+        if (key == "external-ui") {
+            print "external-ui: " modui
             continue
         }
         print line

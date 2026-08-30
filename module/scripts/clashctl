@@ -41,15 +41,10 @@ do_stop() {
     return 0
 }
 
-# 生成 runtime.yaml（仅当用户配置比 runtime 新或 runtime 不存在）
+# 生成 runtime.yaml（每次 start/reload 都重新生成：
+# awk 处理开销可忽略；避免时间戳缓存在补丁逻辑升级后仍复用旧 runtime 的缺陷）
 build_runtime() {
-    _need=1
-    if [ -f "$RUNTIME_CFG" ] && [ -f "$USER_CFG" ]; then
-        [ "$USER_CFG" -nt "$RUNTIME_CFG" ] && _need=1 || _need=0
-    fi
-    if [ "$_need" = "1" ]; then
-        sh "$SCR_DIR/patch_config.sh" || return 1
-    fi
+    sh "$SCR_DIR/patch_config.sh" || return 1
     [ -f "$RUNTIME_CFG" ]
 }
 
@@ -66,6 +61,14 @@ validate() {
 
 do_start() {
     ensure_dirs
+    # 权限兜底：zip/安装器可能丢失可执行位
+    [ -x "$BIN_DIR/mihomo" ] || chmod 755 "$BIN_DIR/mihomo" 2>/dev/null
+    [ -x "$SCR_DIR/clashctl" ] || chmod 755 "$SCR_DIR/clashctl" 2>/dev/null
+    # 确保 zashboard 在数据目录（external-ui 限制；模块更新/首次启动自动同步）
+    if [ ! -f "$DATA_UI_DIR/index.html" ] && [ -f "$UI_DIR/index.html" ]; then
+        $BB rm -rf "$DATA_UI_DIR"
+        $BB cp -r "$UI_DIR" "$DATA_UI_DIR" 2>/dev/null
+    fi
     if [ -f "$PANIC_FILE" ]; then
         echo "panic: 看门狗熔断中（$(cat "$PANIC_FILE" 2>/dev/null)）"
         echo "如确认已修复请执行: clashctl resume"
@@ -84,6 +87,8 @@ do_start() {
     build_runtime || { echo "runtime 生成失败，见 module.log"; return 1; }
     validate || { echo "配置校验失败（mihomo -t），见日志尾"; return 1; }
     rotate_log
+    # 清理陈旧运行状态（断电/强杀残留）
+    $BB rm -f "$STATE_DIR/.probe_fail" "$STATE_DIR/.tunmiss" 2>/dev/null
 
     set_tile starting
     nohup "$BIN_DIR/mihomo" -d "$DATA_DIR" -f "$RUNTIME_CFG" >> "$LOG_FILE" 2>&1 < /dev/null &

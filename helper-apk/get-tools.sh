@@ -40,7 +40,9 @@ if [ ! -f "$TOOLS/android.jar" ]; then
     rm -rf "$TOOLS/sdk"
 fi
 
-if [ ! -f "$TOOLS/ksuclash.keystore" ]; then
+# 签名密钥已随仓库提供（helper-apk/ksuclash.keystore），与 CI 签名一致。
+# 仅当两者都缺失（如 fork 后未提交密钥）才本地生成，保证脚本能独立跑通。
+if [ ! -f "$ROOT/helper-apk/ksuclash.keystore" ] && [ ! -f "$TOOLS/ksuclash.keystore" ]; then
     echo ">> generating signing keystore"
     keytool -genkeypair -keystore "$TOOLS/ksuclash.keystore" -alias ksuclash \
         -keyalg RSA -keysize 2048 -validity 10000 \

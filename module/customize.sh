@@ -2,7 +2,12 @@
 # customize.sh - KernelSU 安装脚本
 SKIPUNZIP=0
 
-MODDIR="$PWD"
+# ksud 在 /dev/tmp 执行 customize.sh 时文件可能已被移动到 modules_update，
+# 故 MODDIR 必须探测真实目录，不能用 $PWD。
+MODDIR="/data/adb/modules_update/ksuclash"
+[ -f "$MODDIR/module.prop" ] || MODDIR="$PWD"
+[ -f "$MODDIR/module.prop" ] || MODDIR="/data/adb/modules/ksuclash"
+ui_print "- module dir: $MODDIR"
 DATA_DIR="/data/adb/ksuclash"
 
 ui_print "- KSU Clash (mihomo) 安装中"

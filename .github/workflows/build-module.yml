@@ -42,8 +42,6 @@ jobs:
           VER=$(gh api repos/MetaCubeX/mihomo/releases/latest --jq .tag_name)
           URL=$(gh api repos/MetaCubeX/mihomo/releases/latest \
             --jq '.assets[] | select(.name | contains("android-arm64-v8")) | .browser_download_url' | head -1)
-          SHA=$(gh api repos/MetaCubeX/mihomo/releases/latest \
-            --jq '.assets[] | select(.name | contains("android-arm64-v8")) | .browser_download_url' >/dev/null; echo "")
           echo "version=$VER" >> "$GITHUB_OUTPUT"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "mihomo: $VER -> $URL"
@@ -79,11 +77,10 @@ jobs:
           cat module/module.prop
 
       - name: Assemble module zip
+        # 用 python packer：正斜杠路径 + 显式可执行位（部分安装器解压不保留 zip mode）
         run: |
           NAME="ksuclash-${{ steps.mihomo.outputs.version }}-$(date +%Y%m%d)"
-          cd module
-          zip -qr "../$NAME.zip" .
-          cd ..
+          python3 scripts-dev/make-module-zip.py module "$NAME.zip"
           unzip -l "$NAME.zip" | head -20
           echo "ZIP_NAME=$NAME" >> "$GITHUB_ENV"
 
