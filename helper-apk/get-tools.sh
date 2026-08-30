@@ -36,7 +36,9 @@ if [ ! -f "$TOOLS/android.jar" ]; then
     mkdir -p sdk/cmdline-tools
     mv cmdline-tools "$TOOLS/sdk/cmdline-tools/latest"
     rm -f ctl.zip
-    yes | "$TOOLS/$SDKM" --sdk_root="$TOOLS/sdk" "platforms;android-34" > /dev/null
+    # pipefail 下 yes 的 SIGPIPE(141) 会让整条管道失败：先单独接受许可，再静默安装
+    yes | "$TOOLS/$SDKM" --sdk_root="$TOOLS/sdk" --licenses > /dev/null 2>&1 || true
+    "$TOOLS/$SDKM" --sdk_root="$TOOLS/sdk" "platforms;android-34" > /dev/null 2>&1
     cp "$TOOLS/sdk/platforms/android-34/android.jar" "$TOOLS/android.jar"
     rm -rf "$TOOLS/sdk"
 fi
