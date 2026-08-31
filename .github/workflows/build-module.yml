@@ -80,7 +80,6 @@ jobs:
           file module/bin/mihomo | tee /dev/stderr | grep -q '${{ matrix.elf_pattern }}'
 
           # helper（无后缀 bin/suclash_helper；clang 文件名带 API 号，用 * 匹配）
-          local cc
           cc=$(ls "$CLANG_DIR"/${{ matrix.clang_prefix }}*-clang 2>/dev/null | head -1)
           [ -n "$cc" ] || { echo "!! NDK clang not found for ${{ matrix.clang_prefix }}" >&2; exit 1; }
           ( cd helper-go && CGO_ENABLED=1 GOOS=android GOARCH=${{ matrix.goarch }} CC="$cc" \
