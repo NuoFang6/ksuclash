@@ -11,40 +11,23 @@ SKIPUNZIP=0
 
 DATA_DIR="/data/adb/suclash"
 
-# 多架构内核选择
-# 约定：bin/mihomo 为默认(arm64)内核；其它架构以 bin/mihomo.<tag> 形式随包附带，
-# 安装时按 $ARCH 选用其一并规范命名为 bin/mihomo，下游统一引用 bin/mihomo。
-# tag 映射（KernelSU 与 Magisk 的 $ARCH 命名不同，均兼容）：
-#   arm64 -> 默认      arm -> armv7      x86_64/x64 -> amd64      x86 -> 386
+# 架构守卫：本模块按架构单独打包（CI 矩阵，见 AGENTS.md §6.1），包内只含单一架构的
+# 无后缀二进制 bin/mihomo + bin/suclash_helper，安装时不做动态选择，仅校验设备架构
+# 与本包目标架构一致，防止在错误架构设备上装错包。
+# 占位符 __TARGET_ARCH__ 由 CI 打包时替换为实际架构（arm64 / amd64）。
+TARGET_ARCH="__TARGET_ARCH__"
+# KernelSU/Magisk 的 $ARCH 命名不同，统一到 CI 使用的规范名（arm64 / amd64）
 case "$ARCH" in
-    arm64)  SEL="" ;;
-    arm)    SEL="armv7" ;;
-    x86_64|x64) SEL="amd64" ;;
-    x86)    SEL="386" ;;
-    *)      abort "! 不支持的架构: $ARCH" ;;
+    arm64)        _ARCH="arm64" ;;
+    x86_64|x64)   _ARCH="amd64" ;;
+    *)            abort "! 不支持的架构: $ARCH（本模块仅支持 arm64 / amd64）" ;;
 esac
-if [ -n "$SEL" ]; then
-    # 非 arm64：必须附带对应架构二进制，绝不静默回退到默认(arm64)内核
-    [ -f "$MODPATH/bin/mihomo.$SEL" ] || abort "! 本模块未附带 $ARCH 内核（缺少 bin/mihomo.$SEL）"
-    mv -f "$MODPATH/bin/mihomo.$SEL" "$MODPATH/bin/mihomo"
-    # 清理其它架构二进制，避免占用空间
-    for _b in "$MODPATH"/bin/mihomo.*; do
-        [ -e "$_b" ] || continue
-        [ "$(basename "$_b")" = "mihomo.$SEL" ] || rm -f "$_b"
-    done
-else
-    [ -f "$MODPATH/bin/mihomo" ] || abort "! 缺少 arm64 内核二进制（bin/mihomo）"
-    for _b in "$MODPATH"/bin/mihomo.*; do [ -e "$_b" ] && rm -f "$_b"; done
+if [ "$TARGET_ARCH" != "$_ARCH" ]; then
+    abort "! 架构不匹配：本包为 $TARGET_ARCH，但当前设备是 $_ARCH，请下载对应架构的模块包"
 fi
 
-# 管理器二进制 suclash_helper 同样按架构选择（与 mihomo 同一约定）
-if [ -n "$SEL" ]; then
-    [ -f "$MODPATH/bin/suclash_helper.$SEL" ] || abort "! 本模块未附带 $ARCH 管理器（缺少 bin/suclash_helper.$SEL）"
-    mv -f "$MODPATH/bin/suclash_helper.$SEL" "$MODPATH/bin/suclash_helper"
-fi
-for _b in "$MODPATH"/bin/suclash_helper.*; do
-    [ -e "$_b" ] && rm -f "$_b"
-done
+# 二进制存在性兜底
+[ -f "$MODPATH/bin/mihomo" ] || abort "! 缺少内核二进制（bin/mihomo）"
 [ -f "$MODPATH/bin/suclash_helper" ] || abort "! 缺少管理器二进制（bin/suclash_helper）"
 
 MOD_VER=$(grep_prop version "$MODPATH/module.prop")

@@ -11,6 +11,21 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 每个架构独立打包成一个 zip（模块内不再做动态架构选择）
+          - arch: arm64
+            goarch: arm64
+            mihomo_asset: android-arm64-v8
+            clang_prefix: aarch64-linux-android
+            elf_pattern: 'ELF 64-bit.*ARM aarch64'
+          - arch: amd64
+            goarch: amd64
+            mihomo_asset: android-amd64
+            clang_prefix: x86_64-linux-android
+            elf_pattern: 'ELF 64-bit.*x86-64'
     steps:
       - uses: actions/checkout@v5
 
@@ -31,9 +46,10 @@ jobs:
       - name: Install pnpm (corepack)
         run: corepack enable && corepack prepare pnpm@latest --activate
 
-      # helper 虽仅依赖 yaml.v3，但 android/amd64 的 syscall/net 需要 cgo（NDK），
-      # arm64 恰好纯 Go 能过、amd64 不能；统一走 cgo 更一致。runner 预装 NDK。
-      - name: Fetch mihomo cores + build Go helpers (arm64 + amd64)
+      # 本 job 只处理单个架构（${{ matrix.arch }}）。helper 虽仅依赖 yaml.v3，
+      # 但 android/amd64 的 syscall/net 需要 cgo（NDK），统一走 cgo 更一致。
+      # runner 预装 NDK。
+      - name: Fetch mihomo core + build Go helper (${{ matrix.arch }})
         id: mihomo
         env:
           GH_TOKEN: ${{ github.token }}
@@ -54,33 +70,23 @@ jobs:
           echo "mihomo: $VER"
           echo "version=$VER" >> "$GITHUB_OUTPUT"
 
-          # 每个架构：下载对应 mihomo 资产 + 用 NDK cgo 交叉编译 helper + 校验 ELF
-          # 参数: goarch mihomo_asset mihomo_out helper_out clang_prefix elf_pattern
-          build_arch() {
-            local goarch="$1" asset="$2" core_out="$3" helper_out="$4" ccpre="$5" elfpat="$6"
-            # mihomo 核心
-            local url
-            url=$(gh api repos/MetaCubeX/mihomo/releases/latest \
-              --jq ".assets[] | select(.name | contains(\"$asset\")) | .browser_download_url" | head -1)
-            [ -n "$url" ] || { echo "!! missing mihomo asset: $asset" >&2; exit 1; }
-            curl -sSL -o "/tmp/mihomo-$goarch.gz" "$url"
-            gunzip -c "/tmp/mihomo-$goarch.gz" > "module/bin/$core_out"
-            chmod +x "module/bin/$core_out"
-            file "module/bin/$core_out" | tee /dev/stderr | grep -q "$elfpat"
-            # helper（同一 clang；文件名带 API 号，如 aarch64-linux-android24-clang，用 * 匹配）
-            local cc
-            cc=$(ls "$CLANG_DIR"/"$ccpre"*-clang 2>/dev/null | head -1)
-            [ -n "$cc" ] || { echo "!! NDK clang not found for $ccpre" >&2; exit 1; }
-            ( cd helper-go && CGO_ENABLED=1 GOOS=android GOARCH="$goarch" CC="$cc" \
-              go build -trimpath -o "../module/bin/$helper_out" . )
-            chmod +x "module/bin/$helper_out"
-            file "module/bin/$helper_out" | tee /dev/stderr | grep -q "$elfpat"
-            echo "  $goarch: core=$core_out helper=$helper_out"
-          }
+          # mihomo 核心（无后缀 bin/mihomo —— 本包已固定为 ${{ matrix.arch }}）
+          local_url=$(gh api repos/MetaCubeX/mihomo/releases/latest \
+            --jq ".assets[] | select(.name | contains(\"${{ matrix.mihomo_asset }}\")) | .browser_download_url" | head -1)
+          [ -n "$local_url" ] || { echo "!! missing mihomo asset: ${{ matrix.mihomo_asset }}" >&2; exit 1; }
+          curl -sSL -o /tmp/mihomo.gz "$local_url"
+          gunzip -c /tmp/mihomo.gz > module/bin/mihomo
+          chmod +x module/bin/mihomo
+          file module/bin/mihomo | tee /dev/stderr | grep -q '${{ matrix.elf_pattern }}'
 
-          # arm64 = 默认（无后缀），amd64 = .amd64（customize.sh 按 $ARCH 选择）
-          build_arch arm64 "android-arm64-v8"  mihomo                suclash_helper        aarch64-linux-android "ELF 64-bit.*ARM aarch64"
-          build_arch amd64 "android-amd64"     mihomo.amd64          suclash_helper.amd64  x86_64-linux-android  "ELF 64-bit.*x86-64"
+          # helper（无后缀 bin/suclash_helper；clang 文件名带 API 号，用 * 匹配）
+          local cc
+          cc=$(ls "$CLANG_DIR"/${{ matrix.clang_prefix }}*-clang 2>/dev/null | head -1)
+          [ -n "$cc" ] || { echo "!! NDK clang not found for ${{ matrix.clang_prefix }}" >&2; exit 1; }
+          ( cd helper-go && CGO_ENABLED=1 GOOS=android GOARCH=${{ matrix.goarch }} CC="$cc" \
+            go build -trimpath -o ../module/bin/suclash_helper . )
+          chmod +x module/bin/suclash_helper
+          file module/bin/suclash_helper | tee /dev/stderr | grep -q '${{ matrix.elf_pattern }}'
 
       - name: Build zashboard (latest main, no bundled fonts)
         run: |
@@ -97,6 +103,10 @@ jobs:
           bash devtools/get-tools.sh
           bash devtools/build-apk.sh
 
+      - name: Pin target arch in customize.sh
+        # 模块不再动态选架构；写入本包架构，安装时仅做 abort 守卫（防装错包）。
+        run: sed -i "s/__TARGET_ARCH__/${{ matrix.arch }}/" module/customize.sh && grep -n TARGET_ARCH module/customize.sh
+
       - name: Stamp version into module.prop
         run: |
           DATE=$(date +%Y%m%d)
@@ -108,7 +118,7 @@ jobs:
       - name: Assemble module zip
         # 用 python packer：正斜杠路径 + 显式可执行位（部分安装器解压不保留 zip mode）
         run: |
-          NAME="ksuclash-${{ steps.mihomo.outputs.version }}-$(date +%Y%m%d)"
+          NAME="ksuclash-${{ matrix.arch }}-${{ steps.mihomo.outputs.version }}-$(date +%Y%m%d)"
           python3 devtools/make-module-zip.py module "$NAME.zip"
           unzip -l "$NAME.zip" | head -20
           echo "ZIP_NAME=$NAME" >> "$GITHUB_ENV"

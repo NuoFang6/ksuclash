@@ -18,8 +18,8 @@ if not os.path.isfile(os.path.join(src, "module.prop")):
     sys.exit("module.prop not found under " + src)
 
 def zi_mode(path, name):
-    # mihomo.<tag> / suclash_helper.<tag> 是多架构二进制（如 .amd64/.armv7），同样需可执行
-    if name in EXEC_FILES or name.startswith(("mihomo.", "suclash_helper.")) or os.path.splitext(name)[1] in EXEC_EXT:
+    # 模块按架构单独打包，bin/ 下是单一架构的无后缀二进制，均需可执行位
+    if name in EXEC_FILES or os.path.splitext(name)[1] in EXEC_EXT:
         return (stat.S_IFREG | 0o755) << 16
     return (stat.S_IFREG | 0o644) << 16
 

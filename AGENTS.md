@@ -59,7 +59,7 @@ ksuclash/
 │   ├── sys_linux.go / sys_stub.go       #   platform syscalls (flock, kill, setsid, freezer)
 │   └── go.mod                           #   module github.com/suclash/helper, gopkg.in/yaml.v3
 ├── module/                              # The installable module (what gets zipped)
-│   ├── customize.sh                     #   install/upgrade (arch selection, perms, data dir)
+│   ├── customize.sh                     #   install/upgrade (arch guard, perms, data dir)
 │   ├── service.sh                       #   boot entry (thin glue; delegates to helper)
 │   ├── action.sh                        #   KernelSU "Action" button menu (volume keys)
 │   ├── uninstall.sh                     #   full cleanup
@@ -67,8 +67,8 @@ ksuclash/
 │   ├── config.default.yaml              #   default user config template
 │   ├── scripts/clashctl                 #   thin shim → exec helper (kept for caller compat)
 │   ├── bin/                             #   build artifacts (gitignored, rebuilt by CI)
-│   │   ├── mihomo                       #     core binary (arch-selected at install)
-│   │   ├── suclash_helper               #     helper binary (arch-selected)
+│   │   ├── mihomo                       #     core binary (single arch per package, no suffix)
+│   │   ├── suclash_helper               #     helper binary (single arch per package)
 │   │   └── MihomoControl.apk            #     companion APK
 │   ├── ui/                              #   zashboard (gitignored, built by CI)
 │   ├── webroot/index.html               #   manager "WebUI" landing page (status + actions)
@@ -178,10 +178,11 @@ No foreground service, no wake locks. Components:
 ## 4. Module lifecycle (install / upgrade / boot / uninstall)
 
 ### 4.1 `customize.sh` (install & upgrade)
-- Arch selection: `arm64` (default), `arm→armv7`, `x86_64/x64→amd64`, `x86→386`.
-  **Never silently fall back to arm64** for other archs — abort if the tagged binary is absent.
-  Renames `bin/mihomo.<tag>` → `bin/mihomo` and deletes leftover arch variants.
-  Same for `suclash_helper.<tag>`.
+- **No dynamic arch selection.** Each package is built for a single arch by the CI matrix
+  (§6.1), so `bin/` only contains a no-suffix `mihomo` + `suclash_helper`. `customize.sh` only
+  **guards**: it compares the device `$ARCH` (normalized `arm64`/`amd64`) against the package's
+  `TARGET_ARCH` (a `__TARGET_ARCH__` placeholder that CI stamps in) and aborts on mismatch — never
+  install the wrong-arch package.
 - Sets exec bits (`set_perm`/`set_perm_recursive`).
 - Creates data dirs; copies `ui/` to data `ui/`; copies default config only if absent.
 - Sets `state/enabled=1` on first install.
@@ -266,21 +267,19 @@ Triggers: **manual dispatch only** (`workflow_dispatch`) + **weekly cron (Mon 03
 Push-based triggers were removed so a plain push to `main` does not auto-build — builds are
 always explicit (manual) or scheduled. The cron is the "self-update" that tracks latest
 upstream.
-Steps: fetch latest mihomo release → for each arch (**arm64**, **amd64**) download the matching
-core (`android-arm64-v8` → `bin/mihomo` default / `android-amd64` → `bin/mihomo.amd64`) and
-cross-compile the **Go helper** with the runner's preinstalled **NDK** (`CGO_ENABLED=1
-GOOS=android GOARCH=arm64|amd64`, `CC=<ndk>/aarch64-|x86_64-linux-android*-clang`) → `bin/suclash_helper`
-(default) + `bin/suclash_helper.amd64`; each binary is verified by `file` (aarch64 / x86-64 ELF)
-→ build latest zashboard `main` with `FONT=none` → `patch-ui.mjs` → build APK → stamp
-`module.prop` (version `v1.0.0-<date>-mihomo<ver>`, versionCode = unix-time-derived) →
-`make-module-zip.py` → upload artifact → release on tag (`v*`). Arch selection at install time is
-delegated to `customize.sh` (§4.1): arm64 devices use `bin/mihomo`, x86_64/x64 use
-`bin/mihomo.amd64`. The two-arch fetch+build is one loop (`build_arch` helper in the workflow),
-not duplicated steps.
-**`module/bin` must end up with five files** for the zip to work on both archs: `mihomo`,
-`mihomo.amd64`, `suclash_helper`, `suclash_helper.amd64` and `MihomoControl.apk` — a missing
-helper/core variant makes the module inert on that arch, so the dual-arch download & helper build
-steps are load-bearing.
+The build job is a **matrix over archs** (`arm64`, `amd64`), each matrix cell producing a
+**separate, single-arch zip** (`ksuclash-<arch>-<ver>-<date>.zip`). Per cell the steps are:
+fetch latest mihomo release → download the matching core (`android-arm64-v8` / `android-amd64` →
+no-suffix `bin/mihomo`) and cross-compile the **Go helper** with the runner's preinstalled **NDK**
+(`CGO_ENABLED=1 GOOS=android GOARCH=arm64|amd64`, `CC=<ndk>/aarch64-|x86_64-linux-android*-clang`)
+→ no-suffix `bin/suclash_helper`; each binary verified by `file` (aarch64 / x86-64 ELF) → build
+latest zashboard `main` with `FONT=none` → `patch-ui.mjs` → build APK → **stamp `__TARGET_ARCH__`
+in `customize.sh`** → stamp `module.prop` (version `v1.0.0-<date>-mihomo<ver>`, versionCode =
+unix-time-derived) → `make-module-zip.py` → upload artifact → release on tag (`v*`).
+**Each zip contains only its own arch binaries (no suffix), so install does no arch selection —
+`customize.sh` only guards against wrong-arch installs (§4.1).** `module/bin` per package must
+contain exactly three files: `mihomo`, `suclash_helper` and `MihomoControl.apk` — a missing
+helper/core makes the module inert, so the download & helper-build steps are load-bearing.
 
 ---
 
