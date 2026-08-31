@@ -31,48 +31,56 @@ jobs:
       - name: Install pnpm (corepack)
         run: corepack enable && corepack prepare pnpm@latest --activate
 
-      - name: Resolve latest mihomo release
+      # helper 虽仅依赖 yaml.v3，但 android/amd64 的 syscall/net 需要 cgo（NDK），
+      # arm64 恰好纯 Go 能过、amd64 不能；统一走 cgo 更一致。runner 预装 NDK。
+      - name: Fetch mihomo cores + build Go helpers (arm64 + amd64)
         id: mihomo
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VER=$(gh api repos/MetaCubeX/mihomo/releases/latest --jq .tag_name)
-          URL_ARM64=$(gh api repos/MetaCubeX/mihomo/releases/latest \
-            --jq '.assets[] | select(.name | contains("android-arm64-v8")) | .browser_download_url' | head -1)
-          URL_AMD64=$(gh api repos/MetaCubeX/mihomo/releases/latest \
-            --jq '.assets[] | select(.name | contains("android-amd64")) | .browser_download_url' | head -1)
-          echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "url_arm64=$URL_ARM64" >> "$GITHUB_OUTPUT"
-          echo "url_amd64=$URL_AMD64" >> "$GITHUB_OUTPUT"
-          echo "mihomo: $VER"
-          echo "  arm64: $URL_ARM64"
-          echo "  amd64: $URL_AMD64"
-          [ -n "$URL_ARM64" ] && [ -n "$URL_AMD64" ] || { echo "!! missing mihomo asset" >&2; exit 1; }
-
-      - name: Download mihomo cores (arm64 + amd64)
-        run: |
+          set -euo pipefail
           mkdir -p module/bin
-          # arm64 -> bin/mihomo (default), amd64 -> bin/mihomo.amd64
-          curl -sSL -o /tmp/mihomo-arm64.gz "${{ steps.mihomo.outputs.url_arm64 }}"
-          gunzip -c /tmp/mihomo-arm64.gz > module/bin/mihomo
-          chmod +x module/bin/mihomo
-          file module/bin/mihomo | tee /dev/stderr | grep -q 'ELF 64-bit.*ARM aarch64'
-          curl -sSL -o /tmp/mihomo-amd64.gz "${{ steps.mihomo.outputs.url_amd64 }}"
-          gunzip -c /tmp/mihomo-amd64.gz > module/bin/mihomo.amd64
-          chmod +x module/bin/mihomo.amd64
-          file module/bin/mihomo.amd64 | tee /dev/stderr | grep -q 'ELF 64-bit.*x86-64'
 
-      - name: Build Go helper (arm64 + amd64)
-        run: |
-          cd helper-go
-          go mod download
-          # arm64 -> bin/suclash_helper (default), amd64 -> bin/suclash_helper.amd64
-          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -trimpath -o ../module/bin/suclash_helper .
-          chmod +x ../module/bin/suclash_helper
-          file ../module/bin/suclash_helper | tee /dev/stderr | grep -q 'ELF 64-bit.*ARM aarch64'
-          CGO_ENABLED=0 GOOS=android GOARCH=amd64 go build -trimpath -o ../module/bin/suclash_helper.amd64 .
-          chmod +x ../module/bin/suclash_helper.amd64
-          file ../module/bin/suclash_helper.amd64 | tee /dev/stderr | grep -q 'ELF 64-bit.*x86-64'
+          # 定位 NDK clang（ubuntu runner 预装，ANDROID_NDK_HOME 已指向默认 NDK）
+          NDK_ROOT="${ANDROID_NDK_HOME:-}"
+          if [ -z "$NDK_ROOT" ] || [ ! -d "$NDK_ROOT" ]; then
+            NDK_ROOT=$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | tail -1 || true)
+          fi
+          [ -n "$NDK_ROOT" ] && [ -d "$NDK_ROOT" ] || { echo "!! NDK not found" >&2; exit 1; }
+          CLANG_DIR="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          echo "NDK: $NDK_ROOT"
+
+          VER=$(gh api repos/MetaCubeX/mihomo/releases/latest --jq .tag_name)
+          echo "mihomo: $VER"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+          # 每个架构：下载对应 mihomo 资产 + 用 NDK cgo 交叉编译 helper + 校验 ELF
+          # 参数: goarch mihomo_asset mihomo_out helper_out clang_prefix elf_pattern
+          build_arch() {
+            local goarch="$1" asset="$2" core_out="$3" helper_out="$4" ccpre="$5" elfpat="$6"
+            # mihomo 核心
+            local url
+            url=$(gh api repos/MetaCubeX/mihomo/releases/latest \
+              --jq ".assets[] | select(.name | contains(\"$asset\")) | .browser_download_url" | head -1)
+            [ -n "$url" ] || { echo "!! missing mihomo asset: $asset" >&2; exit 1; }
+            curl -sSL -o "/tmp/mihomo-$goarch.gz" "$url"
+            gunzip -c "/tmp/mihomo-$goarch.gz" > "module/bin/$core_out"
+            chmod +x "module/bin/$core_out"
+            file "module/bin/$core_out" | tee /dev/stderr | grep -q "$elfpat"
+            # helper（同一 clang；文件名带 API 号，如 aarch64-linux-android24-clang，用 * 匹配）
+            local cc
+            cc=$(ls "$CLANG_DIR"/"$ccpre"*-clang 2>/dev/null | head -1)
+            [ -n "$cc" ] || { echo "!! NDK clang not found for $ccpre" >&2; exit 1; }
+            ( cd helper-go && CGO_ENABLED=1 GOOS=android GOARCH="$goarch" CC="$cc" \
+              go build -trimpath -o "../module/bin/$helper_out" . )
+            chmod +x "module/bin/$helper_out"
+            file "module/bin/$helper_out" | tee /dev/stderr | grep -q "$elfpat"
+            echo "  $goarch: core=$core_out helper=$helper_out"
+          }
+
+          # arm64 = 默认（无后缀），amd64 = .amd64（customize.sh 按 $ARCH 选择）
+          build_arch arm64 "android-arm64-v8"  mihomo                suclash_helper        aarch64-linux-android "ELF 64-bit.*ARM aarch64"
+          build_arch amd64 "android-amd64"     mihomo.amd64          suclash_helper.amd64  x86_64-linux-android  "ELF 64-bit.*x86-64"
 
       - name: Build zashboard (latest main, no bundled fonts)
         run: |

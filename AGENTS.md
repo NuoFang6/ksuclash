@@ -266,14 +266,17 @@ Triggers: **manual dispatch only** (`workflow_dispatch`) + **weekly cron (Mon 03
 Push-based triggers were removed so a plain push to `main` does not auto-build — builds are
 always explicit (manual) or scheduled. The cron is the "self-update" that tracks latest
 upstream.
-Steps: resolve latest mihomo release → download **two** cores — `android-arm64-v8` → `bin/mihomo`
-(default) and `android-amd64` → `bin/mihomo.amd64` (both verified by `file`: aarch64 / x86-64 ELF)
-→ cross-compile **Go helper** for both archs (`CGO_ENABLED=0 GOOS=android GOARCH=arm64|amd64 go
-build`, pure-Go, no NDK) → `bin/suclash_helper` (default) + `bin/suclash_helper.amd64` → build
-latest zashboard `main` with `FONT=none` → `patch-ui.mjs` → build APK → stamp `module.prop`
-(version `v1.0.0-<date>-mihomo<ver>`, versionCode = unix-time-derived) → `make-module-zip.py` →
-upload artifact → release on tag (`v*`). Arch selection at install time is delegated to
-`customize.sh` (§4.1): arm64 devices use `bin/mihomo`, x86_64/x64 use `bin/mihomo.amd64`.
+Steps: fetch latest mihomo release → for each arch (**arm64**, **amd64**) download the matching
+core (`android-arm64-v8` → `bin/mihomo` default / `android-amd64` → `bin/mihomo.amd64`) and
+cross-compile the **Go helper** with the runner's preinstalled **NDK** (`CGO_ENABLED=1
+GOOS=android GOARCH=arm64|amd64`, `CC=<ndk>/aarch64-|x86_64-linux-android*-clang`) → `bin/suclash_helper`
+(default) + `bin/suclash_helper.amd64`; each binary is verified by `file` (aarch64 / x86-64 ELF)
+→ build latest zashboard `main` with `FONT=none` → `patch-ui.mjs` → build APK → stamp
+`module.prop` (version `v1.0.0-<date>-mihomo<ver>`, versionCode = unix-time-derived) →
+`make-module-zip.py` → upload artifact → release on tag (`v*`). Arch selection at install time is
+delegated to `customize.sh` (§4.1): arm64 devices use `bin/mihomo`, x86_64/x64 use
+`bin/mihomo.amd64`. The two-arch fetch+build is one loop (`build_arch` helper in the workflow),
+not duplicated steps.
 **`module/bin` must end up with five files** for the zip to work on both archs: `mihomo`,
 `mihomo.amd64`, `suclash_helper`, `suclash_helper.amd64` and `MihomoControl.apk` — a missing
 helper/core variant makes the module inert on that arch, so the dual-arch download & helper build
@@ -304,10 +307,14 @@ steps are load-bearing.
 8. **BuildTime/ldflags pitfall (for NDK/local cross-builds):** when injecting a build time via
    `-ldflags`, a `date` string containing a space will split into multiple args and make the
    linker print usage. Use the no-space format `date -u +%Y-%m-%dT%H:%M:%SZ`.
-9. **Android core needs cgo (NDK).** mihomo's net/tailscale/gvisor deps require external C
-   linking for `android` targets; a pure-Go build fails with `requires external (cgo) linking`.
-   Cross-compile with `CC=<triple>-clang`, `CGO_ENABLED=1`, `GOOS=android`. (amalgamated into
-   the `avd-magisk-module-test` skill — reuse it.)
+9. **Android cgo is not optional — for the helper too.** mihomo's net/tailscale/gvisor deps
+   require external C linking for `android` targets. But **`suclash_helper` also needs NDK/cgo**
+   on `android/amd64` (and `android/386`): Go's `syscall`/`os`/`net` packages have **no pure-Go
+   implementation on those targets** and any import of them fails with `requires external (cgo)
+   linking`. `android/arm64` happens to have a pure-Go syscall, so `CGO_ENABLED=0` "works" there —
+   a trap that silently breaks the amd64 build. **Always build the helper with cgo** for
+   consistency: `CGO_ENABLED=1 GOOS=android GOARCH=arm64|amd64 CC=<ndk>/<triple>-clang`.
+   (amalgamated into the `avd-magisk-module-test` skill — reuse it.)
 10. **`mihomo` android/amd64 asset name** has no `GOAMD64` suffix (`mihomo-android-amd64-<ver>.gz`),
     unlike linux/darwin/windows (v1/v2/v3). If you touch core-version/self-upgrade code, keep
     this in mind (see upstream PR history if you change `coreBaseName`).
