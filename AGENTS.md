@@ -266,14 +266,18 @@ Triggers: **manual dispatch only** (`workflow_dispatch`) + **weekly cron (Mon 03
 Push-based triggers were removed so a plain push to `main` does not auto-build — builds are
 always explicit (manual) or scheduled. The cron is the "self-update" that tracks latest
 upstream.
-Steps: resolve latest mihomo release → download **android-arm64-v8** asset (verified as
-aarch64 ELF) → cross-compile **Go helper** (`CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build`,
-pure-Go, no NDK) → build latest zashboard `main` with `FONT=none` → `patch-ui.mjs` → build APK →
-stamp `module.prop` (version `v1.0.0-<date>-mihomo<ver>`, versionCode = unix-time-derived) →
-`make-module-zip.py` → upload artifact → release on tag (`v*`).
-**`module/bin` must end up with three binaries** for the zip to work: `mihomo`, `suclash_helper`
-and `MihomoControl.apk` — a missing helper makes the module inert, so the helper build step is
-load-bearing.
+Steps: resolve latest mihomo release → download **two** cores — `android-arm64-v8` → `bin/mihomo`
+(default) and `android-amd64` → `bin/mihomo.amd64` (both verified by `file`: aarch64 / x86-64 ELF)
+→ cross-compile **Go helper** for both archs (`CGO_ENABLED=0 GOOS=android GOARCH=arm64|amd64 go
+build`, pure-Go, no NDK) → `bin/suclash_helper` (default) + `bin/suclash_helper.amd64` → build
+latest zashboard `main` with `FONT=none` → `patch-ui.mjs` → build APK → stamp `module.prop`
+(version `v1.0.0-<date>-mihomo<ver>`, versionCode = unix-time-derived) → `make-module-zip.py` →
+upload artifact → release on tag (`v*`). Arch selection at install time is delegated to
+`customize.sh` (§4.1): arm64 devices use `bin/mihomo`, x86_64/x64 use `bin/mihomo.amd64`.
+**`module/bin` must end up with five files** for the zip to work on both archs: `mihomo`,
+`mihomo.amd64`, `suclash_helper`, `suclash_helper.amd64` and `MihomoControl.apk` — a missing
+helper/core variant makes the module inert on that arch, so the dual-arch download & helper build
+steps are load-bearing.
 
 ---
 

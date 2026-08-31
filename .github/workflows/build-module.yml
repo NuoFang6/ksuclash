@@ -37,27 +37,42 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VER=$(gh api repos/MetaCubeX/mihomo/releases/latest --jq .tag_name)
-          URL=$(gh api repos/MetaCubeX/mihomo/releases/latest \
+          URL_ARM64=$(gh api repos/MetaCubeX/mihomo/releases/latest \
             --jq '.assets[] | select(.name | contains("android-arm64-v8")) | .browser_download_url' | head -1)
+          URL_AMD64=$(gh api repos/MetaCubeX/mihomo/releases/latest \
+            --jq '.assets[] | select(.name | contains("android-amd64")) | .browser_download_url' | head -1)
           echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
-          echo "mihomo: $VER -> $URL"
+          echo "url_arm64=$URL_ARM64" >> "$GITHUB_OUTPUT"
+          echo "url_amd64=$URL_AMD64" >> "$GITHUB_OUTPUT"
+          echo "mihomo: $VER"
+          echo "  arm64: $URL_ARM64"
+          echo "  amd64: $URL_AMD64"
+          [ -n "$URL_ARM64" ] && [ -n "$URL_AMD64" ] || { echo "!! missing mihomo asset" >&2; exit 1; }
 
-      - name: Download mihomo (android-arm64)
+      - name: Download mihomo cores (arm64 + amd64)
         run: |
           mkdir -p module/bin
-          curl -sSL -o /tmp/mihomo.gz "${{ steps.mihomo.outputs.url }}"
-          gunzip -c /tmp/mihomo.gz > module/bin/mihomo
+          # arm64 -> bin/mihomo (default), amd64 -> bin/mihomo.amd64
+          curl -sSL -o /tmp/mihomo-arm64.gz "${{ steps.mihomo.outputs.url_arm64 }}"
+          gunzip -c /tmp/mihomo-arm64.gz > module/bin/mihomo
           chmod +x module/bin/mihomo
           file module/bin/mihomo | tee /dev/stderr | grep -q 'ELF 64-bit.*ARM aarch64'
+          curl -sSL -o /tmp/mihomo-amd64.gz "${{ steps.mihomo.outputs.url_amd64 }}"
+          gunzip -c /tmp/mihomo-amd64.gz > module/bin/mihomo.amd64
+          chmod +x module/bin/mihomo.amd64
+          file module/bin/mihomo.amd64 | tee /dev/stderr | grep -q 'ELF 64-bit.*x86-64'
 
-      - name: Build Go helper (android-arm64)
+      - name: Build Go helper (arm64 + amd64)
         run: |
           cd helper-go
           go mod download
+          # arm64 -> bin/suclash_helper (default), amd64 -> bin/suclash_helper.amd64
           CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -trimpath -o ../module/bin/suclash_helper .
           chmod +x ../module/bin/suclash_helper
           file ../module/bin/suclash_helper | tee /dev/stderr | grep -q 'ELF 64-bit.*ARM aarch64'
+          CGO_ENABLED=0 GOOS=android GOARCH=amd64 go build -trimpath -o ../module/bin/suclash_helper.amd64 .
+          chmod +x ../module/bin/suclash_helper.amd64
+          file ../module/bin/suclash_helper.amd64 | tee /dev/stderr | grep -q 'ELF 64-bit.*x86-64'
 
       - name: Build zashboard (latest main, no bundled fonts)
         run: |
