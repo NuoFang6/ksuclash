@@ -1,14 +1,6 @@
 name: build-module
 
 on:
-  push:
-    branches: [ main, master ]
-    paths:
-      - 'module/**'
-      - 'helper-apk/**'
-      - 'devtools/**'
-      - '.github/workflows/**'
-    tags: [ 'v*' ]
   workflow_dispatch:
   schedule:
     # 每周一 03:00 UTC 自动重建：拉取最新 mihomo / zashboard 等依赖（自更新）
@@ -30,6 +22,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: helper-go/go.mod
+          cache-dependency-path: helper-go/go.sum
 
       - name: Install pnpm (corepack)
         run: corepack enable && corepack prepare pnpm@latest --activate
@@ -53,6 +50,14 @@ jobs:
           gunzip -c /tmp/mihomo.gz > module/bin/mihomo
           chmod +x module/bin/mihomo
           file module/bin/mihomo | tee /dev/stderr | grep -q 'ELF 64-bit.*ARM aarch64'
+
+      - name: Build Go helper (android-arm64)
+        run: |
+          cd helper-go
+          go mod download
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -trimpath -o ../module/bin/suclash_helper .
+          chmod +x ../module/bin/suclash_helper
+          file ../module/bin/suclash_helper | tee /dev/stderr | grep -q 'ELF 64-bit.*ARM aarch64'
 
       - name: Build zashboard (latest main, no bundled fonts)
         run: |

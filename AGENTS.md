@@ -262,13 +262,18 @@ caches = `build/` (gitignored)**.
   installers drop zip modes), and excludes `webroot-src/`.
 
 ### 6.1 CI (`build-module.yml`)
-Triggers: push to `main`/`master` touching `module/**`, `helper-apk/**`, `devtools/**`, workflow
-files, or `v*` tags; manual dispatch; **weekly cron (Mon 03:00 UTC)** — this is the
-"self-update" that tracks latest upstream.
+Triggers: **manual dispatch only** (`workflow_dispatch`) + **weekly cron (Mon 03:00 UTC)**.
+Push-based triggers were removed so a plain push to `main` does not auto-build — builds are
+always explicit (manual) or scheduled. The cron is the "self-update" that tracks latest
+upstream.
 Steps: resolve latest mihomo release → download **android-arm64-v8** asset (verified as
-aarch64 ELF) → build latest zashboard `main` with `FONT=none` → `patch-ui.mjs` → build APK →
+aarch64 ELF) → cross-compile **Go helper** (`CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build`,
+pure-Go, no NDK) → build latest zashboard `main` with `FONT=none` → `patch-ui.mjs` → build APK →
 stamp `module.prop` (version `v1.0.0-<date>-mihomo<ver>`, versionCode = unix-time-derived) →
-`make-module-zip.py` → upload artifact → release on tag.
+`make-module-zip.py` → upload artifact → release on tag (`v*`).
+**`module/bin` must end up with three binaries** for the zip to work: `mihomo`, `suclash_helper`
+and `MihomoControl.apk` — a missing helper makes the module inert, so the helper build step is
+load-bearing.
 
 ---
 
