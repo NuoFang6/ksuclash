@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # build-apk.sh - 构建 MihomoControl.apk（aapt2 + javac + d8 + zipalign + apksigner）
+# 构建工具统一在 build/ 下（由 get-tools.sh 下载），输出到 module/bin/MihomoControl.apk。
 # 原生工具（aapt2/zipalign 等）统一在 helper-apk 目录内用相对路径调用，
 # 避免 MSYS 绝对路径（/c/...）不被原生 exe 识别的问题。
+# 用法: bash devtools/get-tools.sh && bash devtools/build-apk.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APK="$ROOT/helper-apk"
-TOOLS="$ROOT/tools"
+TOOLS="$ROOT/build"
 
 # java
 if ! command -v java >/dev/null 2>&1; then
@@ -23,6 +25,11 @@ D8="$TOOLS/bt/d8$BAT"
 APKSIGNER="$TOOLS/bt/apksigner$BAT"
 ZIPALIGN="$TOOLS/bt/zipalign$EXE"
 PLATFORM="$TOOLS/android.jar"
+
+if [ ! -f "$AAPT2" ] || [ ! -f "$PLATFORM" ]; then
+    echo "! build tools not found under $TOOLS. Run: bash devtools/get-tools.sh first" >&2
+    exit 1
+fi
 
 # MSYS/Git Bash 下需把 jar 路径转成 Windows 形式再传给原生 javac/d8
 PLAT_CP="$PLATFORM"

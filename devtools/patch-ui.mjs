@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 /**
  * patch-ui.mjs — 将 zashboard 构建产物打包进模块 ui/ 目录并注入悬浮面板
- * 用法: node patch-ui.mjs <zashboard-dist> <module-root>
+ * 用法: node devtools/patch-ui.mjs <zashboard-dist> <module-root>
+ *   <zashboard-dist>  zashboard 的构建产物目录（如 build/dist 或临时构建目录）
+ *   <module-root>     模块根目录（默认 module/）
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
 const [dist, modRoot] = process.argv.slice(2)
 if (!dist || !modRoot) {
-  console.error('usage: node patch-ui.mjs <zashboard-dist> <module-root>')
+  console.error('usage: node devtools/patch-ui.mjs <zashboard-dist> <module-root>')
   process.exit(1)
 }
 const uiDir = join(modRoot, 'ui')

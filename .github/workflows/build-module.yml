@@ -6,7 +6,7 @@ on:
     paths:
       - 'module/**'
       - 'helper-apk/**'
-      - 'scripts-dev/**'
+      - 'devtools/**'
       - '.github/workflows/**'
     tags: [ 'v*' ]
   workflow_dispatch:
@@ -62,12 +62,12 @@ jobs:
           FONT=none pnpm build
 
       - name: Package UI with floating panel
-        run: node scripts-dev/patch-ui.mjs zashboard/dist module
+        run: node devtools/patch-ui.mjs zashboard/dist module
 
       - name: Build helper APK
         run: |
-          bash helper-apk/get-tools.sh
-          bash helper-apk/build-apk.sh
+          bash devtools/get-tools.sh
+          bash devtools/build-apk.sh
 
       - name: Stamp version into module.prop
         run: |
@@ -81,7 +81,7 @@ jobs:
         # 用 python packer：正斜杠路径 + 显式可执行位（部分安装器解压不保留 zip mode）
         run: |
           NAME="ksuclash-${{ steps.mihomo.outputs.version }}-$(date +%Y%m%d)"
-          python3 scripts-dev/make-module-zip.py module "$NAME.zip"
+          python3 devtools/make-module-zip.py module "$NAME.zip"
           unzip -l "$NAME.zip" | head -20
           echo "ZIP_NAME=$NAME" >> "$GITHUB_ENV"
 

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# get-tools.sh - 下载 APK 构建工具（build-tools 34 + platforms;android-34），生成签名密钥
+# get-tools.sh - 下载 APK 构建工具（build-tools 34 + platforms;android-34）到 build/，
+#               并在缺失时生成签名密钥。build/ 为 gitignore 的本地编译产物目录。
+# 用法: bash devtools/get-tools.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TOOLS="$ROOT/tools"
+TOOLS="$ROOT/build"
 mkdir -p "$TOOLS"
 cd "$TOOLS"
 
@@ -53,5 +55,5 @@ if [ ! -f "$ROOT/helper-apk/suclash.keystore" ] && [ ! -f "$TOOLS/suclash.keysto
         -dname "CN=SU Clash, O=suclash, C=CN"
 fi
 
-echo ">> tools ready:"
+echo ">> build tools ready:"
 ls -1 "$TOOLS"

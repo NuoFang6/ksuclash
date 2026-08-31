@@ -60,8 +60,8 @@ KernelSU / ReSukiSU 模块：以 **TUN 模式**（非 Android VpnService）运�
 ## 本地开发
 
 ```bash
-bash scripts-dev/deploy.ps1 ...        # 或 helper-apk/build-apk.sh 构建 APK
-node scripts-dev/patch-ui.mjs zashboard/dist module   # 打包 zashboard + 注入悬浮面板
+bash devtools/deploy.sh ...              # 或 bash devtools/get-tools.sh && devtools/build-apk.sh 构建 APK
+node devtools/patch-ui.mjs zashboard/dist module   # 打包 zashboard + 注入悬浮面板
 ```
 
 依赖：Node/pnpm（zashboard）、JDK17+（APK）、platform-tools（adb）。

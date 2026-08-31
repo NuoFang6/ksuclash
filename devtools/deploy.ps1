@@ -1,5 +1,5 @@
 # deploy.ps1 - 部署模块到设备（PowerShell 编排，Git Bash 下 adb 有挂起问题）
-# 用法: powershell -File scripts-dev/deploy.ps1 [push|config|start|stop|status|log|all]
+# 用法: powershell -File devtools/deploy.ps1 [push|config|start|stop|status|log|all]
 param([string]$Action = "all")
 $ErrorActionPreference = "Continue"
 $Root = $PSScriptRoot | Split-Path

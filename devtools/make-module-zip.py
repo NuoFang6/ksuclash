@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""make-module-zip.py - 打包模块 zip：正斜杠路径 + 保留可执行位 + 排除源码目录"""
+"""make-module-zip.py - 打包模块 zip：正斜杠路径 + 保留可执行位 + 排除源码目录
+用法: python3 devtools/make-module-zip.py [module-root] [output.zip]
+默认: 从 module/ 打包到 suclash-module.zip
+"""
 import os
 import stat
 import sys

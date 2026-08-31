@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # deploy.sh - 部署模块到设备（开发迭代用，无需重启）
-# 用法: bash scripts-dev/deploy.sh [push|config|start|stop|status|log|all]
+# 用法: bash devtools/deploy.sh [push|config|start|stop|status|log|all]
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ADB="$ROOT/platform-tools/adb.exe"
