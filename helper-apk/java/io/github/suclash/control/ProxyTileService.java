@@ -1,8 +1,5 @@
-package io.github.ksuclash.control;
+package io.github.suclash.control;
 
-import android.app.PendingIntent;
-import android.content.Context;
-import android.content.Intent;
 import android.service.quicksettings.Tile;
 import android.service.quicksettings.TileService;
 
@@ -27,7 +24,7 @@ public class ProxyTileService extends TileService {
     }
 
     private void refreshAsync() {
-        Root.execAsync("cat /data/adb/ksuclash/state/tile 2>/dev/null || echo off", r ->
+        Root.execAsync("cat /data/adb/suclash/state/tile 2>/dev/null || echo off", r ->
                 refresh(TileState.normalize(r.out)));
     }
 

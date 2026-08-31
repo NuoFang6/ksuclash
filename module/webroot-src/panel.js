@@ -1,42 +1,80 @@
-/* KSU Clash 悬浮面板 - 注入 zashboard
+/* SU Clash 悬浮面板 - 注入 zashboard
  *  - 可拖拽气泡，点按展开全屏覆盖层（核心操作）
  *  - 启动/停止/重启 经 window.ksu.exec 调用模块 clashctl（KSU 管理器 WebUI 或配套 App 内可用；
  *    普通浏览器自动降级为仅状态显示）
  *  - 启动/重启成功后自动刷新页面（zashboard 重连）；停止后覆盖层显示"核心未运行"
- *  - 首次访问自动导入后端（读取 window.__KSUCLASH__ 注入的 API 地址与 secret）
+ *  - 首次访问自动导入后端（读取 window.__SUCLASH__ 注入的 API 地址与 secret）
  */
 ;(function () {
   'use strict'
-  var CFG = window.__KSUCLASH__ || { api: { protocol: 'http', host: '127.0.0.1', port: '9090', secret: '' } }
+  var CFG = window.__SUCLASH__ || { api: { protocol: 'http', host: '127.0.0.1', port: '9090', secret: '' } }
   var A = CFG.api
   var hasRoot = typeof window.ksu !== 'undefined' && typeof window.ksu.exec === 'function'
-  var CTL = '/data/adb/modules/ksuclash/scripts/clashctl'
+  var CTL = '/data/adb/modules/suclash/scripts/clashctl'
 
-  // ---------- 自动导入后端（仅当面板尚未配置任何后端时；旧空密钥条目自动修复） ----------
+  // ---------- 本机后端（唯一写入者） ----------
+  // panel.js 是本机后端「唯一」的写入方：clashctl 的面板 URL 已不再携带
+  // hostname/secret/label 等后端参数，zashboard 的 addBackend 不会被触发，
+  // 因此不会产生重复后端。这里只做两件事：
+  //   1. 列表为空 → 种入 suclash-local；已存在 → 校正其 label/secret/字段（幂等）
+  //   2. 历史版本残留的重复条目，用一次性迁移标记清理一次，之后不再做去重
+  var SEED_VER = '2'
   function seedBackend() {
     try {
-      var list = JSON.parse(localStorage.getItem('setup/api-list') || '[]')
-      if (list.length) {
-        for (var i = 0; i < list.length; i++) {
-          if (list[i].uuid === 'ksuclash-local' && A.secret && list[i].password !== A.secret) {
-            list[i].password = A.secret
-            localStorage.setItem('setup/api-list', JSON.stringify(list))
-          }
+      var host = A.host || '127.0.0.1'
+      var port = String(A.port || '9090')
+      function localBackend() {
+        return {
+          type: 'clash',
+          protocol: A.protocol || 'http',
+          host: host,
+          port: port,
+          secondaryPath: '',
+          password: A.secret || '',
+          uuid: 'suclash-local',
+          label: 'SU Clash',
+          disableUpgradeCore: false,
+          disableTunMode: false,
         }
+      }
+      var list = JSON.parse(localStorage.getItem('setup/api-list') || '[]')
+      if (!list.length) {
+        localStorage.setItem('setup/api-list', JSON.stringify([localBackend()]))
+        // active-uuid 在 zashboard 里是 useStorage 的 string 类型（默认 ''），
+        // 走 raw 序列化器——绝不能 JSON.stringify，否则带引号后 find(uuid===...) 匹配不上
+        localStorage.setItem('setup/active-uuid', 'suclash-local')
+        localStorage.setItem('setup/suclash-seed-v', SEED_VER)
         return
       }
-      var backend = {
-        type: 'clash',
-        protocol: A.protocol || 'http',
-        host: A.host || '127.0.0.1',
-        port: String(A.port || '9090'),
-        secondaryPath: '',
-        password: A.secret || '',
-        uuid: 'ksuclash-local',
-        label: 'KSU Clash',
+
+      var activeUuid = localStorage.getItem('setup/active-uuid') || ''
+      var migrated = localStorage.getItem('setup/suclash-seed-v') === SEED_VER
+
+      var kept = [], seenLocal = false, dirty = false, removedActive = false
+      for (var i = 0; i < list.length; i++) {
+        var it = list[i]
+        if (it.uuid === 'suclash-local') {
+          if (it.label !== 'SU Clash') { it.label = 'SU Clash'; dirty = true }
+          if (it.password !== (A.secret || '')) { it.password = A.secret || ''; dirty = true }
+          if (it.disableUpgradeCore === undefined) { it.disableUpgradeCore = false; dirty = true }
+          if (it.disableTunMode === undefined) { it.disableTunMode = false; dirty = true }
+          seenLocal = true
+          kept.push(it)
+        } else if (!migrated && it.host === host && String(it.port) === port) {
+          // 一次性迁移：清掉历史版本产生的同 endpoint 重复条目
+          if (activeUuid === it.uuid) removedActive = true
+          dirty = true
+        } else {
+          kept.push(it)
+        }
       }
-      localStorage.setItem('setup/api-list', JSON.stringify([backend]))
-      localStorage.setItem('setup/active-uuid', JSON.stringify('ksuclash-local'))
+      if (!seenLocal) {
+        kept.push(localBackend())
+        dirty = true
+      }
+      if (dirty) localStorage.setItem('setup/api-list', JSON.stringify(kept))
+      if (removedActive) localStorage.setItem('setup/active-uuid', 'suclash-local')
+      if (!migrated) localStorage.setItem('setup/suclash-seed-v', SEED_VER)
     } catch (e) { /* ignore */ }
   }
   seedBackend()
@@ -50,6 +88,47 @@
       resolve(out)
     })
   }
+
+  // ---------- 事件式自愈：拦截「升级面板」----------
+  // zashboard 的「升级面板」调用 POST /upgrade/ui，mihomo 会在响应返回前完成
+  // downloadUI（清空 external-ui 并解压官方 zashboard），抹掉我们的注入。
+  // 这里拦截 XHR/fetch，在响应到达（即更新完成）后经 root 桥执行 repatch-ui，
+  // 事件触发、无轮询；仅在存在 root 桥的环境生效（App / KSU 管理器 WebUI）。
+  function hookUiUpgrade() {
+    if (!hasRoot) return
+    function afterUpgrade() {
+      rootExec(CTL + ' repatch-ui').catch(function () {})
+    }
+    function isUpgradeUi(u) {
+      return /\/upgrade\/ui(?:\?|$)/.test(String(u || ''))
+    }
+    try {
+      var _open = XMLHttpRequest.prototype.open
+      var _send = XMLHttpRequest.prototype.send
+      XMLHttpRequest.prototype.open = function (method, url) {
+        this.__sucUpgrade = isUpgradeUi(url)
+        return _open.apply(this, arguments)
+      }
+      XMLHttpRequest.prototype.send = function () {
+        if (this.__sucUpgrade) {
+          this.addEventListener('load', afterUpgrade)
+          this.addEventListener('error', afterUpgrade)
+        }
+        return _send.apply(this, arguments)
+      }
+    } catch (e) {}
+    try {
+      var _fetch = window.fetch
+      window.fetch = function () {
+        var p = _fetch.apply(this, arguments)
+        if (isUpgradeUi(arguments[0])) {
+          p.then(afterUpgrade).catch(afterUpgrade)
+        }
+        return p
+      }
+    } catch (e) {}
+  }
+  hookUiUpgrade()
 
   function getState() {
     return rootExec(CTL + ' status').then(function (out) {
@@ -68,65 +147,67 @@
   // ---------- UI ----------
   var css = document.createElement('style')
   css.textContent = [
-    '#ksuc-bubble{position:fixed;z-index:2147483647;right:14px;bottom:96px;width:44px;height:44px;',
+    '#suc-bubble{position:fixed;z-index:2147483647;right:14px;bottom:96px;width:44px;height:44px;',
     'border-radius:50%;background:#1f2937;color:#fbbf24;display:flex;align-items:center;justify-content:center;',
     'font-size:19px;box-shadow:0 2px 10px rgba(0,0,0,.35);cursor:grab;user-select:none;touch-action:none;opacity:.85}',
-    '#ksuc-bubble:active{cursor:grabbing;opacity:1}',
-    '@media (prefers-color-scheme: light){#ksuc-card{background:#ffffff !important;color:#0f172a !important}',
-    '#ksuc-card .ksuc-btn{background:#e2e8f0 !important;color:#0f172a !important}',
-    '#ksuc-card .ksuc-btn.pri{background:#2563eb !important;color:#fff !important}',
-    '#ksuc-card .ksuc-btn.warn{background:#b91c1c !important;color:#fff !important}}',
-    '#ksuc-ov{position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);display:none;',
+    '#suc-bubble:active{cursor:grabbing;opacity:1}',
+    '@media (prefers-color-scheme: light){#suc-card{background:#ffffff !important;color:#0f172a !important}',
+    '#suc-card .suc-btn{background:#e2e8f0 !important;color:#0f172a !important}',
+    '#suc-card .suc-btn.pri{background:#2563eb !important;color:#fff !important}',
+    '#suc-card .suc-btn.warn{background:#b91c1c !important;color:#fff !important}}',
+    '#suc-ov{position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);display:none;',
     'align-items:center;justify-content:center}',
-    '#ksuc-ov.show{display:flex}',
-    '#ksuc-card{width:270px;background:#1f2937;color:#e5e7eb;border-radius:18px;padding:20px;',
+    '#suc-ov.show{display:flex}',
+    '#suc-card{width:270px;background:#1f2937;color:#e5e7eb;border-radius:18px;padding:20px;',
     'box-shadow:0 10px 40px rgba(0,0,0,.45);font-size:14px}',
-    '.ksuc-title{font-weight:700;font-size:16px;display:flex;align-items:center;gap:8px}',
-    '.ksuc-title .tag{font-size:11px;background:#334155;color:#cbd5e1;border-radius:99px;padding:2px 8px;font-weight:400}',
-    '.ksuc-status{margin:12px 0 4px;font-size:13px;line-height:1.5;word-break:break-all}',
-    '.ksuc-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:#9ca3af;vertical-align:middle}',
-    '.ksuc-dot.on{background:#22c55e}.ksuc-dot.panic{background:#ef4444}',
-    '.ksuc-row{display:flex;gap:8px;margin-top:12px}',
-    '.ksuc-btn{flex:1;padding:11px 0;border-radius:10px;border:none;font-size:13.5px;cursor:pointer;',
+    '.suc-title{font-weight:700;font-size:16px;display:flex;align-items:center;gap:8px}',
+    '.suc-title .tag{font-size:11px;background:#334155;color:#cbd5e1;border-radius:99px;padding:2px 8px;font-weight:400}',
+    '.suc-status{margin:12px 0 4px;font-size:13px;line-height:1.5;word-break:break-all}',
+    '.suc-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:#9ca3af;vertical-align:middle}',
+    '.suc-dot.on{background:#22c55e}.suc-dot.panic{background:#ef4444}',
+    '.suc-row{display:flex;gap:8px;margin-top:12px}',
+    '.suc-btn{flex:1;padding:11px 0;border-radius:10px;border:none;font-size:13.5px;cursor:pointer;',
     'background:#334155;color:#e5e7eb;font-weight:600}',
-    '.ksuc-btn.pri{background:#2563eb;color:#fff}',
-    '.ksuc-btn.warn{background:#b91c1c;color:#fff}',
-    '.ksuc-btn:active{filter:brightness(1.25)}',
-    '.ksuc-hint{font-size:11.5px;opacity:.6;margin-top:10px;line-height:1.6}',
-    '.ksuc-big{font-size:15px;font-weight:700;margin:8px 0 2px}',
-    '.ksuc-log{display:none;margin-top:10px;background:rgba(0,0,0,.4);color:#cbd5e1;',
+    '.suc-btn.pri{background:#2563eb;color:#fff}',
+    '.suc-btn.warn{background:#b91c1c;color:#fff}',
+    '.suc-btn:active{filter:brightness(1.25)}',
+    '.suc-hint{font-size:11.5px;opacity:.6;margin-top:10px;line-height:1.6}',
+    '.suc-big{font-size:15px;font-weight:700;margin:8px 0 2px}',
+    '.suc-log{display:none;margin-top:10px;background:rgba(0,0,0,.4);color:#cbd5e1;',
     'font:10.5px/1.5 ui-monospace,monospace;padding:8px;border-radius:8px;',
     'max-height:170px;overflow:auto;white-space:pre-wrap;word-break:break-all}',
-    '@media (prefers-color-scheme: light){#ksuc-log{background:#f1f5f9;color:#334155}}',
+    '@media (prefers-color-scheme: light){#suc-log{background:#f1f5f9;color:#334155}}',
   ].join('')
   document.head.appendChild(css)
 
   var bubble = document.createElement('div')
-  bubble.id = 'ksuc-bubble'
+  bubble.id = 'suc-bubble'
   bubble.textContent = '⚡'
   var ov = document.createElement('div')
-  ov.id = 'ksuc-ov'
+  ov.id = 'suc-ov'
   var card = document.createElement('div')
-  card.id = 'ksuc-card'
+  card.id = 'suc-card'
   ov.appendChild(card)
   document.body.appendChild(bubble)
   document.body.appendChild(ov)
 
   function html() {
-    return '<div class="ksuc-title">⚡ KSU Clash <span class="tag">mihomo</span></div>' +
-      '<div class="ksuc-status" id="ksuc-st">读取中…</div>' +
-      '<div id="ksuc-ctl"></div>' +
-      '<div class="ksuc-row">' +
-      '<button class="ksuc-btn" data-a="mlog">模块日志</button>' +
-      '<button class="ksuc-btn" data-a="logrefresh">刷新日志</button></div>' +
-      '<pre id="ksuc-log" class="ksuc-log">（模块日志 /data/adb/ksuclash/module.log）</pre>' +
-      '<div class="ksuc-hint">拖动气泡可移动位置；核心操作经 root 桥执行。</div>'
+    return '<div class="suc-title">⚡ SU Clash <span class="tag">mihomo</span></div>' +
+      '<div class="suc-status" id="suc-st">读取中…</div>' +
+      '<div id="suc-ctl"></div>' +
+      '<div class="suc-row">' +
+      '<button class="suc-btn" data-a="mlog">模块日志</button>' +
+      '<button class="suc-btn" data-a="logrefresh">刷新日志</button></div>' +
+      '<div class="suc-row">' +
+      '<button class="suc-btn" data-a="config">配置</button></div>' +
+      '<pre id="suc-log" class="suc-log">（模块日志 /data/adb/suclash/module.log）</pre>' +
+      '<div class="suc-hint">拖动气泡可移动位置；核心操作经 root 桥执行。</div>'
   }
 
   function loadLog() {
-    var el = card.querySelector('#ksuc-log')
+    var el = card.querySelector('#suc-log')
     if (!el || el.style.display === 'none') return
-    rootExec('tail -n 40 /data/adb/ksuclash/module.log 2>/dev/null').then(function (out) {
+    rootExec('tail -n 40 /data/adb/suclash/module.log 2>/dev/null').then(function (out) {
       el.textContent = (out && out.trim()) ? out.trim() : '（暂无日志）'
       el.scrollTop = el.scrollHeight
     })
@@ -134,40 +215,40 @@
 
   // 视图：running=控制按钮; stopped=核心未运行提示
   function renderRunning(st) {
-    var stEl = card.querySelector('#ksuc-st')
-    var ctl = card.querySelector('#ksuc-ctl')
+    var stEl = card.querySelector('#suc-st')
+    var ctl = card.querySelector('#suc-ctl')
     var dot = st === 'on' ? 'on' : (st === 'panic' ? 'panic' : '')
     var label = { on: '核心运行中', off: '核心未运行', starting: '启动中…', stopping: '停止中…', panic: '已熔断（反复异常）', unknown: '状态未知' }[st] || st
-    stEl.innerHTML = '<span class="ksuc-dot ' + dot + '"></span>' + label
+    stEl.innerHTML = '<span class="suc-dot ' + dot + '"></span>' + label
     if (!hasRoot) {
-      ctl.innerHTML = '<div class="ksuc-hint">当前环境无 root 桥，仅显示状态。核心管理请使用 KSU Clash App。</div>'
+      ctl.innerHTML = '<div class="suc-hint">当前环境无 root 桥，仅显示状态。核心管理请使用 SU Clash App。</div>'
       return
     }
     if (st === 'on') {
-      ctl.innerHTML = '<div class="ksuc-row">' +
-        '<button class="ksuc-btn" data-a="restart">重启核心</button>' +
-        '<button class="ksuc-btn warn" data-a="stop">停止</button></div>'
+      ctl.innerHTML = '<div class="suc-row">' +
+        '<button class="suc-btn" data-a="restart">重启核心</button>' +
+        '<button class="suc-btn warn" data-a="stop">停止</button></div>'
     } else if (st === 'panic') {
-      ctl.innerHTML = '<div class="ksuc-row"><button class="ksuc-btn pri" data-a="resume">恢复并启动</button></div>'
+      ctl.innerHTML = '<div class="suc-row"><button class="suc-btn pri" data-a="resume">恢复并启动</button></div>'
     } else {
-      ctl.innerHTML = '<div class="ksuc-row"><button class="ksuc-btn pri" data-a="start">启动核心</button></div>'
+      ctl.innerHTML = '<div class="suc-row"><button class="suc-btn pri" data-a="start">启动核心</button></div>'
     }
   }
 
   function renderBusy(text) {
-    card.querySelector('#ksuc-st').innerHTML = '<span class="ksuc-dot"></span>' + text
-    card.querySelector('#ksuc-ctl').innerHTML = ''
+    card.querySelector('#suc-st').innerHTML = '<span class="suc-dot"></span>' + text
+    card.querySelector('#suc-ctl').innerHTML = ''
   }
 
   function renderStopped() {
-    var stEl = card.querySelector('#ksuc-st')
-    var ctl = card.querySelector('#ksuc-ctl')
-    stEl.innerHTML = '<span class="ksuc-dot"></span>核心未运行'
-    ctl.innerHTML = '<div class="ksuc-big">zashboard 面板不可用</div>' +
-      '<div class="ksuc-hint">核心停止后页面将无法连接后端。可点击下方按钮重新启动，完成后自动刷新。</div>' +
-      '<div class="ksuc-row">' +
-      (hasRoot ? '<button class="ksuc-btn pri" data-a="start">启动核心</button>' : '') +
-      '<button class="ksuc-btn" data-a="close">关闭</button></div>'
+    var stEl = card.querySelector('#suc-st')
+    var ctl = card.querySelector('#suc-ctl')
+    stEl.innerHTML = '<span class="suc-dot"></span>核心未运行'
+    ctl.innerHTML = '<div class="suc-big">zashboard 面板不可用</div>' +
+      '<div class="suc-hint">核心停止后页面将无法连接后端。可点击下方按钮重新启动，完成后自动刷新。</div>' +
+      '<div class="suc-row">' +
+      (hasRoot ? '<button class="suc-btn pri" data-a="start">启动核心</button>' : '') +
+      '<button class="suc-btn" data-a="close">关闭</button></div>'
   }
 
   function refresh() {
@@ -181,12 +262,13 @@
     if (!hasRoot) return
     if (a === 'close') { ov.classList.remove('show'); return }
     if (a === 'mlog') {
-      var el = card.querySelector('#ksuc-log')
+      var el = card.querySelector('#suc-log')
       el.style.display = el.style.display === 'block' ? 'none' : 'block'
       loadLog()
       return
     }
     if (a === 'logrefresh') { loadLog(); return }
+    if (a === 'config') { try { window.ksu.openConfig() } catch (e) {} return }
     if (a === 'stop') {
       renderBusy('停止中…')
       rootExec(CTL + ' stop').then(function () { setTimeout(refresh, 500) })
@@ -246,12 +328,12 @@
   })
   bubble.addEventListener('pointerup', function () {
     if (moved) {
-      try { localStorage.setItem('ksuc-panel-pos', bubble.style.left + '|' + bubble.style.top) } catch (e) {}
+      try { localStorage.setItem('suc-panel-pos', bubble.style.left + '|' + bubble.style.top) } catch (e) {}
       setTimeout(function () { dragged = false }, 50)
     }
   })
   try {
-    var pos = (localStorage.getItem('ksuc-panel-pos') || '').split('|')
+    var pos = (localStorage.getItem('suc-panel-pos') || '').split('|')
     if (pos.length === 2 && pos[0]) {
       bubble.style.right = 'auto'; bubble.style.bottom = 'auto'
       bubble.style.left = pos[0]; bubble.style.top = pos[1]

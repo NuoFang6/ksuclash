@@ -1,4 +1,4 @@
-package io.github.ksuclash.control;
+package io.github.suclash.control;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -20,6 +20,6 @@ public class ActionReceiver extends BroadcastReceiver {
             } finally {
                 pr.finish();
             }
-        }, "ksuc-action").start();
+        }, "suc-action").start();
     }
 }

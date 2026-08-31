@@ -5,18 +5,18 @@ $ErrorActionPreference = "Continue"
 $Root = $PSScriptRoot | Split-Path
 $Adb = Join-Path $Root "platform-tools\adb.exe"
 if (-not (Test-Path $Adb)) { $Adb = "adb" }
-$ModRemote = "/data/adb/modules/ksuclash"
-$DataRemote = "/data/adb/ksuclash"
+$ModRemote = "/data/adb/modules/suclash"
+$DataRemote = "/data/adb/suclash"
 
 function Su([string]$cmd) {
     & $Adb shell "su -c '$cmd'" 2>&1 | ForEach-Object { "$_" }
 }
 function PushModule {
     ">> push module"
-    & $Adb push "$Root\module" /data/local/tmp/ksuclash_stage | Out-Null
+    & $Adb push "$Root\module" /data/local/tmp/suclash_stage | Out-Null
     Su "rm -rf $ModRemote && mkdir -p $ModRemote" | Out-Null
-    Su "cp -a /data/local/tmp/ksuclash_stage/. $ModRemote/" | Out-Null
-    Su "rm -rf /data/local/tmp/ksuclash_stage" | Out-Null
+    Su "cp -a /data/local/tmp/suclash_stage/. $ModRemote/" | Out-Null
+    Su "rm -rf /data/local/tmp/suclash_stage" | Out-Null
     Su "chown -R 0.0 $ModRemote" | Out-Null
     Su "find $ModRemote -type d -exec chmod 755 {} +" | Out-Null
     Su "find $ModRemote -type f -exec chmod 644 {} +" | Out-Null
@@ -28,9 +28,9 @@ function PushModule {
 }
 function PushConfig {
     ">> push user config"
-    & $Adb push "$Root\clash.yaml" /data/local/tmp/ksuclash_user.yaml | Out-Null
+    & $Adb push "$Root\clash.yaml" /data/local/tmp/suclash_user.yaml | Out-Null
     Su "mkdir -p $DataRemote/state $DataRemote/logs $DataRemote/cache" | Out-Null
-    Su "cp -f /data/local/tmp/ksuclash_user.yaml $DataRemote/config.yaml && rm -f /data/local/tmp/ksuclash_user.yaml" | Out-Null
+    Su "cp -f /data/local/tmp/suclash_user.yaml $DataRemote/config.yaml && rm -f /data/local/tmp/suclash_user.yaml" | Out-Null
     Su "rm -f $DataRemote/runtime.yaml" | Out-Null
     ">> done"
 }

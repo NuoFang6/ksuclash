@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">KSU Clash</string>
+    <string name="app_name">SU Clash</string>
     <string name="tile_name">Mihomo 代理</string>
     <string name="notif_channel">核心控制</string>
-    <string name="notif_title">KSU Clash (mihomo)</string>
+    <string name="notif_title">SU Clash (mihomo)</string>
 </resources>

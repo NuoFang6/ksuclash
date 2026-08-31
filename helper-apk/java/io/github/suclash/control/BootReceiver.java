@@ -1,4 +1,4 @@
-package io.github.ksuclash.control;
+package io.github.suclash.control;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;

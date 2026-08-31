@@ -1,8 +1,6 @@
 # 外部克隆与本地工具不入库
-KernelSU/
-Meta-Docs/
-mihomo/
-zashboard/
+tmp/*
+!tmp/.gitkeep
 platform-tools/
 tools/
 node_modules/
@@ -10,11 +8,15 @@ node_modules/
 *.zip
 *.gz
 *.idsig
+*.keystore
 
 # 模块构建产物（CI 重新生成）
 module/bin/mihomo
-module/ui/
+module/bin/mihomo.*
+module/bin/suclash_helper
+module/bin/suclash_helper.*
 module/bin/MihomoControl.apk
+module/ui/
 helper-apk/build/
 
 # 用户私有配置（含订阅token，禁止入库）
@@ -24,6 +26,13 @@ clash.yaml
 dist/
 .build/
 
+# 本地编译/测试产物（AVD 等，构建期新建）
+build/
+build-avd/
+
 # 本地临时/调试产物
 .tmp/
 ksuclash-module.zip
+
+# 项目数据/记忆（不入库）
+.workbuddy/

@@ -5,8 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ADB="$ROOT/platform-tools/adb.exe"
 [ -x "$ADB" ] || ADB=adb
-MOD_REMOTE=/data/adb/modules/ksuclash
-DATA_REMOTE=/data/adb/ksuclash
+MOD_REMOTE=/data/adb/modules/suclash
+DATA_REMOTE=/data/adb/suclash
 
 adb_shell() { "$ADB" shell "su -c '$1'" </dev/null; }
 
@@ -15,10 +15,10 @@ winpath() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else ec
 
 push_module() {
     echo ">> push module"
-    "$ADB" push "$(winpath "$ROOT/module")" /data/local/tmp/ksuclash_stage > /dev/null </dev/null
+    "$ADB" push "$(winpath "$ROOT/module")" /data/local/tmp/suclash_stage > /dev/null </dev/null
     adb_shell "rm -rf $MOD_REMOTE && mkdir -p $MOD_REMOTE"
-    adb_shell "cp -a /data/local/tmp/ksuclash_stage/. $MOD_REMOTE/"
-    adb_shell "rm -rf /data/local/tmp/ksuclash_stage"
+    adb_shell "cp -a /data/local/tmp/suclash_stage/. $MOD_REMOTE/"
+    adb_shell "rm -rf /data/local/tmp/suclash_stage"
     adb_shell "chown -R 0.0 $MOD_REMOTE"
     adb_shell "find $MOD_REMOTE -type d -exec chmod 755 {} +"
     adb_shell "find $MOD_REMOTE -type f -exec chmod 644 {} +"
@@ -28,9 +28,9 @@ push_module() {
 
 push_config() {
     echo ">> push user config (workspace clash.yaml -> $DATA_REMOTE/config.yaml)"
-    "$ADB" push "$(winpath "$ROOT/clash.yaml")" /data/local/tmp/ksuclash_user.yaml > /dev/null </dev/null
+    "$ADB" push "$(winpath "$ROOT/clash.yaml")" /data/local/tmp/suclash_user.yaml > /dev/null </dev/null
     adb_shell "mkdir -p $DATA_REMOTE/state $DATA_REMOTE/logs $DATA_REMOTE/cache"
-    adb_shell "cp -f /data/local/tmp/ksuclash_user.yaml $DATA_REMOTE/config.yaml && rm -f /data/local/tmp/ksuclash_user.yaml"
+    adb_shell "cp -f /data/local/tmp/suclash_user.yaml $DATA_REMOTE/config.yaml && rm -f /data/local/tmp/suclash_user.yaml"
     echo ">> done"
 }
 

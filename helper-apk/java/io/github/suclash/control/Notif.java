@@ -1,4 +1,4 @@
-package io.github.ksuclash.control;
+package io.github.suclash.control;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -6,8 +6,6 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.net.Uri;
-import android.os.Build;
 
 /** 常驻通知：静态通知（无前台服务），动作经 ActionReceiver 执行。 */
 public final class Notif {
@@ -21,7 +19,7 @@ public final class Notif {
     static void ensureChannel(Context c) {
         NotificationChannel ch = new NotificationChannel(CHANNEL,
                 c.getString(R.string.notif_channel), NotificationManager.IMPORTANCE_MIN);
-        ch.setDescription("KSU Clash 快捷操作");
+        ch.setDescription("SU Clash 快捷操作");
         ch.setShowBadge(false);
         nm(c).createNotificationChannel(ch);
     }
@@ -41,22 +39,10 @@ public final class Notif {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    static PendingIntent openPanel(Context c, String url) {
-        if (url == null || url.isEmpty()) url = "http://127.0.0.1:9090/ui/";
-        Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            return PendingIntent.getActivity(c, 8, i,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        } catch (Exception e) { return null; }
-    }
-
-    /** 依据状态文件构建/刷新通知。state: on|off|starting|stopping|panic；panelUrl 可为 null（用默认） */
-    public static void post(Context c, String state, String detail, String panelUrl) {
+    /** 依据状态文件构建/刷新通知。state: on|off|starting|stopping|panic */
+    public static void post(Context c, String state, String detail) {
         ensureChannel(c);
-        Notification.Builder b;
-        if (Build.VERSION.SDK_INT >= 26) b = new Notification.Builder(c, CHANNEL);
-        else b = new Notification.Builder(c);
+        Notification.Builder b = new Notification.Builder(c, CHANNEL);
         b.setSmallIcon(R.drawable.ic_tile)
                 .setContentTitle(c.getString(R.string.notif_title))
                 .setOngoing(true)
@@ -74,10 +60,8 @@ public final class Notif {
         b.setContentText(text);
 
         if ("on".equals(state)) {
-            b.addAction(new Notification.Action.Builder(null, "暂停(直连)", action(c, "mode direct")).build());
+            b.addAction(new Notification.Action.Builder(null, "停止核心", action(c, "stop")).build());
             b.addAction(new Notification.Action.Builder(null, "重启核心", action(c, "restart")).build());
-            PendingIntent p = openPanel(c, panelUrl);
-            if (p != null) b.addAction(new Notification.Action.Builder(null, "面板", p).build());
         } else if ("panic".equals(state)) {
             b.addAction(new Notification.Action.Builder(null, "恢复并启动", action(c, "resume")).build());
         } else {

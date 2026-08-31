@@ -1,4 +1,4 @@
-# KSU Clash 默认配置模板（首次安装自动放置，请替换为你自己的配置）
+# SU Clash 默认配置模板（首次安装自动放置，请替换为你自己的配置）
 # 建议直接填入你原来的 clash.yaml（TUN 段会自动兼容）。
 
 mode: rule
@@ -10,7 +10,7 @@ find-process-mode: strict
 
 external-controller: 127.0.0.1:9090
 secret: ""
-external-ui: /data/adb/modules/ksuclash/ui
+external-ui: /data/adb/modules/suclash/ui
 
 profile:
   store-selected: true

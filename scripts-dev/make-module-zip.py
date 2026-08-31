@@ -6,16 +6,17 @@ import sys
 import zipfile
 
 src = sys.argv[1] if len(sys.argv) > 1 else "module"
-out = sys.argv[2] if len(sys.argv) > 2 else "ksuclash-module.zip"
+out = sys.argv[2] if len(sys.argv) > 2 else "suclash-module.zip"
 EXCLUDE_DIRS = {"webroot-src"}          # 面板/页面源码不进 zip（webroot 才是产物）
-EXEC_FILES = {"mihomo", "clashctl", "service.sh", "customize.sh", "uninstall.sh", "action.sh"}
+EXEC_FILES = {"mihomo", "suclash_helper", "clashctl", "service.sh", "customize.sh", "uninstall.sh", "action.sh"}
 EXEC_EXT = {".sh"}
 
 if not os.path.isfile(os.path.join(src, "module.prop")):
     sys.exit("module.prop not found under " + src)
 
 def zi_mode(path, name):
-    if name in EXEC_FILES or os.path.splitext(name)[1] in EXEC_EXT:
+    # mihomo.<tag> / suclash_helper.<tag> 是多架构二进制（如 .amd64/.armv7），同样需可执行
+    if name in EXEC_FILES or name.startswith(("mihomo.", "suclash_helper.")) or os.path.splitext(name)[1] in EXEC_EXT:
         return (stat.S_IFREG | 0o755) << 16
     return (stat.S_IFREG | 0o644) << 16
 

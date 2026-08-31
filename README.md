@@ -1,4 +1,4 @@
-# KSU Clash (mihomo)
+# SU Clash (mihomo)
 
 KernelSU / ReSukiSU 模块：以 **TUN 模式**（非 Android VpnService）运行 [mihomo](https://github.com/MetaCubeX/mihomo)，
 适配 WiFi / 蜂窝自动切换，含看门狗熔断保护、控制中心磁贴、通知快捷按钮、zashboard 面板与悬浮控制窗，卸载无残留。
@@ -6,7 +6,7 @@ KernelSU / ReSukiSU 模块：以 **TUN 模式**（非 Android VpnService）运�
 ## 特性
 
 - **TUN 接管**：mihomo 自带 `auto-route`（ip rule 策略路由）+ `auto-detect-interface`（netlink 监听换网自动重绑出站），模块侧**零 iptables**；核心退出后路由随 tun 消失，系统自动回到直连，天然故障安全。
-- **最小侵入配置**：你的配置文件 `/data/adb/ksuclash/config.yaml` **永不被修改**；启动时生成派生的 `runtime.yaml`，仅在缺失 `tun.enable` / `dns.enable` / `external-controller` / `external-ui` 时补齐（头部注释可审计），其余逐字节保留。
+- **最小侵入配置**：你的配置文件 `/data/adb/suclash/config.yaml` **永不被修改**；启动时生成派生的 `runtime.yaml`，仅在缺失 `tun.enable` / `dns.enable` / `external-controller` / `external-ui` 时补齐（头部注释可审计），其余逐字节保留。
 - **快捷路径**：
   - 控制中心**磁贴**（点按启停，长按进控制台）
   - 开机**常驻通知**（暂停切直连 / 重启核心 / 打开面板；静态通知，无前台服务零耗电）
@@ -19,10 +19,10 @@ KernelSU / ReSukiSU 模块：以 **TUN 模式**（非 Android VpnService）运�
 
 ## 安装
 
-1. 刷入 `ksuclash-*.zip`（管理器刷入或 `ksud module install xxx.zip`）。
-2. 首次安装会自动生成配置模板并安装控制 App（`io.github.ksuclash.control`）。
-3. 将你原有的 `clash.yaml` 放到 `/data/adb/ksuclash/config.yaml`（`adb push` 后 su 拷贝，或管理器 WebUI 引导页「导入配置文件」）。
-4. 在管理器「超级用户」中给 **KSU Clash**（控制 App）授权 root（一次性）。
+1. 刷入 `suclash-*.zip`（管理器刷入或 `ksud module install xxx.zip`）。
+2. 首次安装会自动生成配置模板并安装控制 App（`io.github.suclash.control`）。
+3. 将你原有的 `clash.yaml` 放到 `/data/adb/suclash/config.yaml`（`adb push` 后 su 拷贝，或管理器 WebUI 引导页「导入配置文件」）。
+4. 在管理器「超级用户」中给 **SU Clash**（控制 App）授权 root（一次性）。
 5. 从控制中心添加 **Mihomo 代理** 磁贴。
 
 ## 使用
@@ -32,14 +32,14 @@ KernelSU / ReSukiSU 模块：以 **TUN 模式**（非 Android VpnService）运�
 | 磁贴 | 点按=启停切换；长按=控制台 App |
 | 通知 | 暂停(直连)/重启核心/面板；点正文进 App |
 | 管理器 WebUI | 状态、启停、模式、导入配置、打开面板 |
-| CLI | `sh /data/adb/modules/ksuclash/scripts/clashctl {start\|stop\|restart\|reload\|toggle\|resume\|enable\|disable\|status\|mode rule\|panel\|log}` |
+| CLI | `sh /data/adb/modules/suclash/scripts/clashctl {start\|stop\|restart\|reload\|toggle\|resume\|enable\|disable\|status\|mode rule\|panel\|log}` |
 | 面板 | `clashctl panel` 输出的 URL（管理器 WebUI 或浏览器均可） |
 
 ## 目录
 
 ```
-/data/adb/modules/ksuclash/     模块本体（bin/scripts/ui/webroot）
-/data/adb/ksuclash/
+/data/adb/modules/suclash/     模块本体（bin/scripts/ui/webroot）
+/data/adb/suclash/
   ├─ config.yaml                你的配置（唯一编辑对象）
   ├─ runtime.yaml               派生运行时配置（自动生成）
   ├─ ui/                        zashboard（含 panel-config.js，随启动按你的 secret 生成）
@@ -50,7 +50,7 @@ KernelSU / ReSukiSU 模块：以 **TUN 模式**（非 Android VpnService）运�
 
 - 启动失败 / 反复崩溃 → 自动熔断（磁贴显示"已熔断"），排查 `logs/mihomo.log` 后 `clashctl resume`。
 - 配置语法错误会在启动前被 `mihomo -t` 拦截，不会带病上线。
-- 卸载模块：自动停核心、删 `/data/adb/ksuclash`、卸载控制 App、通知随 App 消失，**无任何系统残留**。
+- 卸载模块：自动停核心、删 `/data/adb/suclash`、卸载控制 App、通知随 App 消失，**无任何系统残留**。
 
 ## CI
 

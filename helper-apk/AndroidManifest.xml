@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="io.github.ksuclash.control">
+    package="io.github.suclash.control">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -21,6 +21,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".ConfigActivity"
+            android:exported="false"
+            android:label="配置管理" />
+
+        <provider
+            android:name=".ConfigProvider"
+            android:authorities="io.github.suclash.control.config"
+            android:exported="true"
+            android:grantUriPermissions="true" />
 
         <service
             android:name=".ProxyTileService"

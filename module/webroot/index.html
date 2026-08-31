@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>KSU Clash</title>
+<title>SU Clash</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -38,13 +38,13 @@
 </head>
 <body>
 <div class="card">
-  <div class="title">⚡ KSU Clash <span class="tag">mihomo</span></div>
+  <div class="title">⚡ SU Clash <span class="tag">mihomo</span></div>
   <div class="status" id="st">读取状态中…</div>
   <div id="ctl"></div>
   <div class="hint">启动后自动进入 zashboard 面板；核心操作经 root 桥执行。</div>
 </div>
 <script>
-const CTL = '/data/adb/modules/ksuclash/scripts/clashctl'
+const CTL = '/data/adb/modules/suclash/scripts/clashctl'
 const $ = id => document.getElementById(id)
 function run(cmd) {
   try { return Promise.resolve(window.ksu.exec(cmd) || '') }

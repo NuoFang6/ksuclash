@@ -1,6 +1,9 @@
-package io.github.ksuclash.control;
+package io.github.suclash.control;
 
 import android.content.Context;
+
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** 磁贴/通知共用的状态语义。 */
 public final class TileState {
@@ -23,23 +26,26 @@ public final class TileState {
         }
     }
 
+    /** 从 clashctl status 全文输出中提取 state= 值 */
+    private static String parseState(String statusOut) {
+        Matcher m = Pattern.compile("state=(\\w+)").matcher(statusOut);
+        return normalize(m.find() ? m.group(1) : "");
+    }
+
     /** root 读取状态并刷新通知。 */
     public static void sync(Context c) {
         new Thread(() -> {
-            String state = normalize(Root.ctl("status", 20));
+            String out = Root.ctl("status", 20);
+            String state = parseState(out);
             String detail = "";
-            String panel = Root.ctl("panel", 20).trim();
             if (TILE_ON.equals(state)) {
-                String out = Root.ctl("status", 20);
-                java.util.regex.Matcher m = java.util.regex.Pattern
-                        .compile("pid=(\\d+)").matcher(out);
+                Matcher m = Pattern.compile("pid=(\\d+)").matcher(out);
                 if (m.find() && !"-1".equals(m.group(1))) detail = "pid " + m.group(1);
-                java.util.regex.Matcher mm = java.util.regex.Pattern
-                        .compile("\"mode\":\"(\\w+)\"").matcher(out);
+                Matcher mm = Pattern.compile("mode=(\\w+)").matcher(out);
                 if (mm.find()) detail = mm.group(1) + (detail.isEmpty() ? "" : " · " + detail);
             }
-            final String st = state, dt = detail, pu = panel;
-            MainActivity.mainHandler.post(() -> Notif.post(c, st, dt, pu));
-        }, "ksuc-state").start();
+            final String st = state, dt = detail;
+            MainActivity.mainHandler.post(() -> Notif.post(c, st, dt));
+        }, "suc-state").start();
     }
 }

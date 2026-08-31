@@ -1,6 +1,7 @@
-package io.github.ksuclash.control;
+package io.github.suclash.control;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
@@ -13,15 +14,13 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 /**
- * KSU Clash 主界面：核心运行中 → 全屏 WebView 加载 zashboard（注入与 KSU 管理器
+ * SU Clash 主界面：核心运行中 → 全屏 WebView 加载 zashboard（注入与 KSU 管理器
  * 同名的 ksu root 桥，悬浮面板同一套代码）；核心未运行 → 原生提示页（启动核心）。
  */
 public class MainActivity extends Activity {
     public static final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
 
     private WebView web;
-    private ViewGroup hintView;
-    private String panelUrl = null;
     private boolean started = false;
 
     @Override
@@ -48,7 +47,7 @@ public class MainActivity extends Activity {
 
     /** 读取核心状态，决定进入 webview 还是提示页。 */
     private void refreshEntry() {
-        Root.execAsync("sh " + Root.SCRIPT + " status; sh " + Root.SCRIPT + " panel", r -> {
+        Root.execAsync("sh " + Root.SCRIPT + " repatch-ui; sh " + Root.SCRIPT + " status; sh " + Root.SCRIPT + " panel", r -> {
             String out = r.out == null ? "" : r.out;
             java.util.regex.Matcher sm = java.util.regex.Pattern
                     .compile("state=(\\w+)").matcher(out);
@@ -82,10 +81,9 @@ public class MainActivity extends Activity {
         root.setPadding(dp(20), dp(20), dp(20), dp(20));
         scroll.addView(root, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
-        hintView = root;
 
         TextView title = new TextView(this);
-        title.setText("⚡ KSU Clash  [mihomo]");
+        title.setText("⚡ SU Clash  [mihomo]");
         title.setTextSize(19);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         root.addView(title);
@@ -110,6 +108,11 @@ public class MainActivity extends Activity {
         reload.setOnClickListener(v -> refreshEntry());
         root.addView(reload);
 
+        Button cfg = new Button(this);
+        cfg.setText("配置");
+        cfg.setOnClickListener(v -> startActivity(new Intent(this, ConfigActivity.class)));
+        root.addView(cfg);
+
         TextView hint = new TextView(this);
         hint.setTextSize(11.5f);
         hint.setPadding(0, dp(12), 0, 0);
@@ -125,13 +128,12 @@ public class MainActivity extends Activity {
 
     private void showWeb(String url) {
         started = true;
-        panelUrl = url;
         web = new WebView(this);
         web.getSettings().setJavaScriptEnabled(true);
         web.getSettings().setDomStorageEnabled(true);
         web.getSettings().setCacheMode(android.webkit.WebSettings.LOAD_NO_CACHE);
         web.setBackgroundColor(0xFF0F172A);
-        web.addJavascriptInterface(new KsuBridge(), "ksu");
+        web.addJavascriptInterface(new KsuBridge(this), "ksu");
         web.setWebViewClient(new WebViewClient());
         setContentView(web);
         web.loadUrl(url);

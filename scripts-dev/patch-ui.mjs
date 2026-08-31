@@ -41,7 +41,7 @@ if (!html.includes('panel.js')) {
 // 默认 panel-config（设备端每次启动会被 patch_config.sh 按用户配置重写）
 writeFileSync(
   join(uiDir, 'panel-config.js'),
-  'window.__KSUCLASH__={api:{protocol:"http",host:"127.0.0.1",port:"9090",secret:""}};\n',
+  'window.__SUCLASH__={api:{protocol:"http",host:"127.0.0.1",port:"9090",secret:""}};\n',
 )
 
 console.log(`ui packaged: ${uiDir}`)

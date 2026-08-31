@@ -1,4 +1,4 @@
-# KSU Clash (mihomo) 模块设计
+# SU Clash (mihomo) 模块设计
 
 KernelSU 模块，以 **TUN（非 VpnService）** 方式运行 mihomo，目标：稳定、省电、各 App 兼容、卸载无残留。
 
@@ -16,8 +16,8 @@ KernelSU 模块，以 **TUN（非 VpnService）** 方式运行 mihomo，目标�
 │   ├─ 外部控制器 127.0.0.1:9090 + external-ui → zashboard（同源, 无CORS/混合内容问题）│
 │   └─ 连接出站绑定默认网卡, netlink 监听 WiFi/蜂窝切换自动重绑                        │
 │                                                                                   │
-│  /data/adb/modules/ksuclash/   模块本体（升级时整体替换）                            │
-│  /data/adb/ksuclash/          用户数据（配置/日志/状态, 卸载时清除）                  │
+│  /data/adb/modules/suclash/   模块本体（升级时整体替换）                            │
+│  /data/adb/suclash/          用户数据（配置/日志/状态, 卸载时清除）                  │
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -29,11 +29,11 @@ KernelSU 模块，以 **TUN（非 VpnService）** 方式运行 mihomo，目标�
 
 | 路径 | 作用 | 生命周期 |
 |---|---|---|
-| `/data/adb/modules/ksuclash/` | 模块：二进制/脚本/webroot/ui(zashboard)/APK | 安装/更新/卸载由管理器管理 |
-| `/data/adb/ksuclash/config.yaml` | **用户配置（唯一编辑对象，模块永不改写）** | 卸载时删除 |
-| `/data/adb/ksuclash/runtime.yaml` | 由用户配置派生的运行时配置（含必要补丁） | 每次启动重算 |
-| `/data/adb/ksuclash/{logs,state,cache}` | 日志/状态/geo与规则缓存 | 卸载时删除 |
-| 通知/磁贴辅助 APK `io.github.ksuclash.control` | 快捷磁贴+常驻通知 | 卸载时 `pm uninstall` |
+| `/data/adb/modules/suclash/` | 模块：二进制/脚本/webroot/ui(zashboard)/APK | 安装/更新/卸载由管理器管理 |
+| `/data/adb/suclash/config.yaml` | **用户配置（唯一编辑对象，模块永不改写）** | 卸载时删除 |
+| `/data/adb/suclash/runtime.yaml` | 由用户配置派生的运行时配置（含必要补丁） | 每次启动重算 |
+| `/data/adb/suclash/{logs,state,cache}` | 日志/状态/geo与规则缓存 | 卸载时删除 |
+| 通知/磁贴辅助 APK `io.github.suclash.control` | 快捷磁贴+常驻通知 | 卸载时 `pm uninstall` |
 
 ## 3. 配置处理（最小侵入）
 
@@ -84,7 +84,7 @@ KernelSU 模块，以 **TUN（非 VpnService）** 方式运行 mihomo，目标�
 
 ## 8. 无残留
 
-- 卸载脚本：停核心 → 删 `/data/adb/ksuclash` → `pm uninstall` 辅助 App → 通知随 App 卸载消失。
+- 卸载脚本：停核心 → 删 `/data/adb/suclash` → `pm uninstall` 辅助 App → 通知随 App 卸载消失。
 - 模块不触碰系统分区、不写系统属性、不持久化任何 iptables/路由；tun/策略路由随进程消亡。
 - 不使用 `post-fs-data.sh`，不挂载任何系统文件。
 
