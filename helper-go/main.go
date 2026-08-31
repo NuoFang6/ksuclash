@@ -43,6 +43,7 @@ func usage() {
 
 开关与信息:
   enable|disable     开机自启开关
+  savelog [on|off]   核心日志保存开关(默认关闭, 开启后缓存写盘)
   log [n]            查看核心日志(默认 50 行)
   mlog [n]           查看模块管理日志(默认 50 行)
   version            版本信息
@@ -91,6 +92,8 @@ func main() {
 		err = cmdEnable(args)
 	case "disable":
 		err = cmdDisable(args)
+	case "savelog":
+		err = cmdSavelog(args)
 	case "log":
 		err = cmdLog(args)
 	case "mlog":

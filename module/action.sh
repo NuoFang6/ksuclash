@@ -63,7 +63,7 @@ force_stop() {
 
     # 清理全部运行状态：pid、熔断、崩溃计数、探测标记、磁贴
     rm -f "$STATE/mihomo.pid" "$STATE/watchdog.pid" "$STATE/panic" \
-          "$STATE/crashes" "$STATE/.tunmiss" "$STATE/.probe_fail" 2>/dev/null
+          "$STATE/crashes" "$STATE/.probe_fail" 2>/dev/null
     echo off > "$STATE/tile" 2>/dev/null
 
     echo ">> 完成（开机自启状态未改变，重启后仍按原 enabled 拉起）"

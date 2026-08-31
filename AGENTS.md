@@ -118,11 +118,11 @@ Loop interval `wdIntervalSec = 10s`.
 - Core death → crash-count bump → respawn (with short backoff). If **3 crashes in a
   `crashWindowSec = 600s` window** → **circuit-break (panic)**: write `state/panic`, set tile
   to `panic`, stop core, disable autostart. User must run `clashctl resume` to recover.
-- **tun iface missing** (core alive but `sing-tun` failed) for 2 consecutive cycles → restart.
 - **API hang** (process alive but `/version` fails 2 cycles) → forensics
   (`hangdump.log`: `/proc/status`, `wchan`, `cgroup`, then **SIGQUIT** for a Go goroutine
   dump) → SIGKILL → restart. Repeated hangs also trip the breaker.
-- Log rotation past `logMaxBytes` (8 MiB, keeps one `.old`).
+- Log rotation past `logMaxBytes` (8 MiB, keeps one `.old`) — checked event-driven on each
+  core spawn (no periodic polling; `savelog` defaults off so `mihomo.log` never grows).
 - The watchdog calls `escapeFreezer(pid)` — moves core out of the `uid_xxx` frozen cgroup so
   Android background-freezing can't black-hole the tunnel (critical; keep it).
 
@@ -233,7 +233,7 @@ watchdog        # internal; started by `start`, not meant to be run manually
 **Output contract — do not break it.** The APK parses `status` by regex
 (`state=(\w+)`); tile state values are `on|off|starting|stopping|panic`. `status` prints:
 ```
-state=<tile> pid=<pid> tun=<up|->
+state=<tile> pid=<pid>
 api=<version> mode=<mode>     # "api=unreachable" if API down
 panel=<url>
 [panic=<reason>]

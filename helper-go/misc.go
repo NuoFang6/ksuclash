@@ -103,6 +103,75 @@ func cmdMlog(args []string) error {
 	return tailFile(moduleLog, n)
 }
 
+// cmdSavelog 控制是否保存 mihomo 核心日志（默认不保存）。
+//   savelog on    开启保存：后续核心的 stdout/stderr 落盘到 mihomo.log（缓存写）
+//   savelog off   关闭保存：核心日志丢弃（/dev/null），不产生落盘
+//   savelog       无参：打印当前状态
+// 开关持久化在 state/save_log。切换即时生效需重启核心（日志目标是 spawn 时确定的）。
+func cmdSavelog(args []string) error {
+	arg := ""
+	if len(args) >= 1 {
+		arg = strings.ToLower(args[0])
+	}
+	switch arg {
+	case "on", "1", "enable":
+		return setSavelog(true)
+	case "off", "0", "disable":
+		return setSavelog(false)
+	case "":
+		if fileExists(saveLogFl) {
+			fmt.Println("core log saving: on")
+		} else {
+			fmt.Println("core log saving: off (default)")
+		}
+		return nil
+	default:
+		return fmt.Errorf("用法: savelog [on|off]")
+	}
+}
+
+// setSavelog 切换日志保存开关，并在核心运行时重启核心使新日志目标生效。
+// 一致性保证：若核心重启失败，回滚开关到旧状态，避免"开关已改但日志目标
+// 未变"的状态错位（savelog 与 watchdog restartCore 抢非阻塞锁时可能触发）。
+func setSavelog(on bool) error {
+	oldOn := fileExists(saveLogFl)
+	if oldOn == on {
+		fmt.Printf("core log saving: %s (already)\n", onOffStr(on))
+		return nil
+	}
+	if on {
+		_ = os.WriteFile(saveLogFl, []byte("1"), 0o644)
+	} else {
+		_ = os.Remove(saveLogFl)
+	}
+	appendModuleLog("core log saving: %s", onOffStr(on))
+	if corePID() < 0 {
+		fmt.Printf("core log saving: %s (core not running, applied on next start)\n", onOffStr(on))
+		return nil
+	}
+	appendModuleLog("restarting core to apply log target")
+	if err := cmdRestart(nil); err != nil {
+		// 重启失败（多为与 watchdog 锁竞争）：回滚开关，保证状态一致
+		if on {
+			_ = os.Remove(saveLogFl)
+		} else {
+			_ = os.WriteFile(saveLogFl, []byte("1"), 0o644)
+		}
+		appendModuleLog("core restart failed, reverted log switch: %v", err)
+		return fmt.Errorf("核心重启失败，日志开关已回滚: %w", err)
+	}
+	fmt.Printf("core log saving: %s\n", onOffStr(on))
+	return nil
+}
+
+// onOffStr 布尔转 "on"/"off" 小写显示。
+func onOffStr(on bool) string {
+	if on {
+		return "on"
+	}
+	return "off"
+}
+
 // cmdVersion 输出核心版本（原 clashctl version 语义：mihomo -v 首行）。
 func cmdVersion(args []string) error {
 	if out, err := exec.Command(mihomoBin, "-v").Output(); err == nil {

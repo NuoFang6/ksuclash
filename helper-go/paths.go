@@ -29,8 +29,8 @@ const (
 	tileFl      = stateDir + "/tile"
 	panicFl     = stateDir + "/panic"
 	crashFl     = stateDir + "/crashes" // "<count> <first_ts>"
-	tunMissFl   = stateDir + "/.tunmiss"
 	probeFailFl = stateDir + "/probe_fail"
+	saveLogFl   = stateDir + "/save_log" // 存在=保存 mihomo 日志；默认不保存
 	hangdumpFl  = dataDir + "/hangdump.log"
 
 	mihomoBin  = binDir + "/mihomo"

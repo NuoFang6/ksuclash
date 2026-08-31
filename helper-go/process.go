@@ -20,7 +20,7 @@ import (
 //   state/stopping     标记文件：看门狗拉起守卫（stop 期间不重启）
 //
 // 自愈能力（沿用 shell 版语义）：
-//   崩溃熔断（600s 窗口 3 次 → panic 熔断）、tun 网卡丢失重启、
+//   崩溃熔断（600s 窗口 3 次 → panic 熔断）、
 //   API 挂死取证（SIGQUIT goroutine dump → hangdump.log）后强杀重启。
 
 // lockState 获取状态锁（非阻塞）。返回 nil 表示成功。
@@ -186,7 +186,6 @@ func cmdStart(args []string) error {
 
 	// 清理陈旧运行状态（断电/强杀残留）
 	_ = os.Remove(probeFailFl)
-	_ = os.Remove(tunMissFl)
 
 	setTile("starting")
 	// 看门狗负责 spawn mihomo（父子模型：Wait 即时感知死亡）
@@ -251,10 +250,6 @@ func cmdStatus(args []string) error {
 	if fileExists(panicFl) {
 		tile = "panic"
 	}
-	tun := "-"
-	if tunIfaceOK() {
-		tun = "up"
-	}
 	ver, mode := "", ""
 	if code, body, err := apiRequest("GET", "/version", ""); err == nil && code == 200 {
 		ver = extractJSONString(body, "version")
@@ -262,8 +257,8 @@ func cmdStatus(args []string) error {
 			mode = extractJSONString(body2, "mode")
 		}
 	}
-	// 输出格式与原 clashctl 完全兼容（APK 以 state=(\w+) 解析）
-	fmt.Printf("state=%s pid=%d tun=%s\n", tile, pid, tun)
+	// 输出格式与原 clashctl 兼容（APK 以 state=(\w+) 解析）
+	fmt.Printf("state=%s pid=%d\n", tile, pid)
 	if ver == "" {
 		fmt.Println("api=unreachable")
 	} else if mode != "" {
