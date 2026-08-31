@@ -30,7 +30,7 @@ never drifts from the code. Do not degrade its quality or truncate it — keep i
 ## 2. Repository layout (source of truth — paths below are load-bearing)
 
 ```
-ksuclash/
+suclash/
 ├── .github/workflows/build-module.yml   # CI: build core + zashboard + APK, package zip
 ├── devtools/                            # ALL dev & pipeline scripts (see §6)
 │   ├── deploy.sh / deploy.ps1           #   push/install to device, control, logs
@@ -268,7 +268,7 @@ Push-based triggers were removed so a plain push to `main` does not auto-build �
 always explicit (manual) or scheduled. The cron is the "self-update" that tracks latest
 upstream.
 The build job is a **matrix over archs** (`arm64`, `amd64`), each matrix cell producing a
-**separate, single-arch zip** (`ksuclash-<arch>-<ver>-<date>.zip`). Per cell the steps are:
+**separate, single-arch zip** (`suclash-<arch>-<ver>-<date>.zip`). Per cell the steps are:
 fetch latest mihomo release → download the matching core (`android-arm64-v8` / `android-amd64` →
 no-suffix `bin/mihomo`) and cross-compile the **Go helper** with the runner's preinstalled **NDK**
 (`CGO_ENABLED=1 GOOS=android GOARCH=arm64|amd64`, `CC=<ndk>/aarch64-|x86_64-linux-android*-clang`)

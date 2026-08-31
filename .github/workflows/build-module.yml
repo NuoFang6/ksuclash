@@ -117,7 +117,7 @@ jobs:
       - name: Assemble module zip
         # 用 python packer：正斜杠路径 + 显式可执行位（部分安装器解压不保留 zip mode）
         run: |
-          NAME="ksuclash-${{ matrix.arch }}-${{ steps.mihomo.outputs.version }}-$(date +%Y%m%d)"
+          NAME="suclash-${{ matrix.arch }}-${{ steps.mihomo.outputs.version }}-$(date +%Y%m%d)"
           python3 devtools/make-module-zip.py module "$NAME.zip"
           unzip -l "$NAME.zip" | head -20
           echo "ZIP_NAME=$NAME" >> "$GITHUB_ENV"
