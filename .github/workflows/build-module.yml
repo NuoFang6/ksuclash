@@ -18,13 +18,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 每个架构都独立编译
-          # 常见手机架构 aarch64
-          # - goos: android
-          #   goarch: arm64
-          # avd x86_64 模拟器
+          # 手机真实架构 aarch64（Go 内部链接器不支持 android/amd64，
+          # amd64 仅用于 x86_64 模拟器且需 NDK+cgo，故 CI 只出 arm64 包）
           - goos: android
-            goarch: amd64
+            goarch: arm64
 
     steps:
       - name: 检出代码
