@@ -1,6 +1,5 @@
 # 外部克隆与本地工具不入库
-tmp/*
-!tmp/.gitkeep
+/tmp
 platform-tools/
 node_modules/
 *.log

@@ -1,2 +1,0 @@
-# 占位文件：保持 tmp/ 目录在 git 中占位。
-# tmp/ 内放外部克隆（KernelSU、Meta-Docs、mihomo、zashboard 等），内容由 .gitignore 的 tmp/* 排除，不入库。
