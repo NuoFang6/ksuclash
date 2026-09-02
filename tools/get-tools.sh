@@ -139,7 +139,7 @@ echo "✅ Build Tools 配置完毕: $BUILD_TOOLS_LATEST"
 
 # --- 安装 Platform (android.jar) ---
 # 从 sdkmanager --list 提取最新的 platforms 版本号
-LATEST_STABLE=$(sdkmanager --list | grep "platforms;android-" | grep -v "ext" | awk '{print $1}' | sort -V | tail -n 1)
+LATEST_STABLE=$(sdkmanager --list | grep "platforms;android-" | grep -v "ext" | grep -viE "canary|preview|rc|beta|alpha" | awk '{print $1}' | sort -V | tail -n 1)
 echo "检测到的platforms最新稳定版为: $LATEST_STABLE"
 sdkmanager "$LATEST_STABLE"
 

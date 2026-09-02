@@ -7,6 +7,7 @@ node_modules/
 *.gz
 *.idsig
 *.keystore
+!helper-apk/suclash.keystore
 
 # 模块构建产物（CI 重新生成）
 module/bin/mihomo

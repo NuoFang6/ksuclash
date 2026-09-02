@@ -36,6 +36,13 @@ bash tools/get-zashboard.sh
 echo "🛠️ 准备 helper-apk 构建工具"
 bash tools/get-tools.sh
 
+# get-tools.sh 把 JAVA_HOME / platform_android_jar / PATH / GOROOT 写入 tmp/.env；
+# CI 中 GITHUB_ENV 仅对后续 step 生效，同 step 内需显式 source 才能传给后续脚本
+if [ -f "$TOOLS_DIR/.env" ]; then
+    # shellcheck disable=SC1091
+    source "$TOOLS_DIR/.env"
+fi
+
 # ==============================
 # 2. 编译阶段
 # ==============================

@@ -71,7 +71,6 @@ echo "📋 构建配置:"
 echo "   Min SDK: $MIN_SDK_VERSION"
 echo "   Target SDK: $TARGET_SDK_VERSION"
 echo "   JVM Target: $JVM_TARGET"
-echo "   Coroutines: $COROUTINES_VERSION"
 echo "   Version: $VERSION_NAME ($VERSION_CODE)"
 
 # 获取 JDK 版本，配置必要的 JVM 参数 (兼容 JDK 24+)
@@ -150,6 +149,10 @@ COROUTINES_VERSION="${COROUTINES_VERSION:-$(get_latest_coroutines_version)}"
 echo "使用 Coroutines 版本: $COROUTINES_VERSION"
 
 COR_ANDROID=$(find_or_download "$COR_ANDROID_ARTIFACT" "$COROUTINES_VERSION")
+
+# kotlinx-coroutines-core 是 coroutines-android 的传递依赖，R8/D8 打包必须显式引入
+COR_CORE_ARTIFACT="kotlinx-coroutines-core"
+COR_CORE=$(find_or_download "$COR_CORE_ARTIFACT" "$COROUTINES_VERSION")
 
 # 查找 d8.jar (用于 R8/D8 混淆与 Dex 化)
 D8_JAR=$(find "$HOME/Android/Sdk" -name "d8.jar" 2>/dev/null | head -n 1)
