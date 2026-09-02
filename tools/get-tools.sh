@@ -100,27 +100,36 @@ java -version
 echo "✅ JDK $java_version 配置完毕"
 
 # ==============================
-# 4. 安装 Android CLI 及 Build Tools
+# 4. 安装 Android SDK (使用稳定的 sdkmanager)
 # ==============================
-echo "📦 [2/5] 正在处理 Android CLI 和 Build Tools..."
+echo "📦 [2/5] 正在处理 Android SDK (sdkmanager)..."
 
-if ! command -v android &>/dev/null; then
-    echo "⬇️ 未检测到 android 命令，正在安装 Android CLI..."
-    curl -fsSL https://dl.google.com/android/cli/latest/linux_x86_64/install.sh | bash
+# 检查 sdkmanager 是否可用，不可用则下载 Android Command-line Tools
+if ! command -v sdkmanager &>/dev/null; then
+    echo "⬇️ 未检测到 sdkmanager，正在下载 Android Command-line Tools..."
+    # 下载官方稳定的 commandlinetools
+    curl -fSL "https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip" -o cmd-tools.zip
     
-    # 尝试将常见安装路径加入 PATH 以便当前脚本能直接调用 android 命令
-    for p in "$HOME/.android/cli/bin" "$HOME/.local/bin" "/usr/local/bin"; do
-        if [ -f "$p/android" ]; then
-            add_to_path "$p"
-            break
-        fi
-    done
+    # 按照 Google 官方要求，必须解压到 cmdline-tools/latest 目录
+    mkdir -p ~/Android/Sdk/cmdline-tools
+    unzip -q cmd-tools.zip -d ~/Android/Sdk/cmdline-tools/
+    mv ~/Android/Sdk/cmdline-tools/cmdline-tools ~/Android/Sdk/cmdline-tools/latest
+    rm cmd-tools.zip
 fi
 
-# 获取并安装最新的 build-tools (严格遵照原始提取逻辑)
-BUILD_TOOLS_VER=$(android sdk list "build-tools*" --all | tail -n 1 | awk '{print $1}')
+# 将 sdkmanager 加入 PATH
+CMD_TOOLS_BIN="$HOME/Android/Sdk/cmdline-tools/latest/bin"
+add_to_path "$CMD_TOOLS_BIN"
+
+# 🌟 核心：在 CI 中必须使用 yes | 自动同意所有 License，否则 sdkmanager 会卡死
+echo "正在自动同意 Android SDK Licenses..."
+yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
+# --- 安装 Build Tools ---
+# 从 sdkmanager --list 提取最新的 build-tools 版本号
+BUILD_TOOLS_VER=$(sdkmanager --list | grep "build-tools;" | awk '{print $1}' | sort -V | tail -n 1)
 echo "正在安装 Build Tools: $BUILD_TOOLS_VER"
-android sdk install "$BUILD_TOOLS_VER"
+sdkmanager "$BUILD_TOOLS_VER"
 
 # 获取 build-tools 的绝对路径并配置到 PATH
 BUILD_TOOLS_LATEST=$(ls -d ~/Android/Sdk/build-tools/* 2>/dev/null | sort -V | tail -n 1)
@@ -128,30 +137,22 @@ add_to_path "$BUILD_TOOLS_LATEST"
 which aapt2
 echo "✅ Build Tools 配置完毕: $BUILD_TOOLS_LATEST"
 
-# ==============================
-# 5. 安装 Platform (android.jar)
-# ==============================
-echo "📦 [3/5] 正在处理 Android Platform..."
-
-# 获取最新稳定版 platform (严格遵照原始提取逻辑)
-LATEST_STABLE=$(android sdk list "platforms*" --all | \
-    grep -o 'platforms/android-[0-9.]*' | \
-    grep -v '\-ext' | \
-    sort -uV | \
-    tail -n 1)
-
+# --- 安装 Platform (android.jar) ---
+# 从 sdkmanager --list 提取最新的 platforms 版本号
+LATEST_STABLE=$(sdkmanager --list | grep "platforms;android-" | grep -v "ext" | awk '{print $1}' | sort -V | tail -n 1)
 echo "检测到的platforms最新稳定版为: $LATEST_STABLE"
-android sdk install "$LATEST_STABLE"
+sdkmanager "$LATEST_STABLE"
 
-# 获取 android.jar 路径并写入环境变量
-PLATFORM_ANDROID_JAR=$(ls -d ~/Android/Sdk/$LATEST_STABLE/android.jar 2>/dev/null | head -n 1)
+# 将 platforms;android-35 格式转换为路径格式 platforms/android-35
+PLATFORM_DIR=$(echo "$LATEST_STABLE" | tr ';' '/')
+PLATFORM_ANDROID_JAR=$(ls -d ~/Android/Sdk/$PLATFORM_DIR/android.jar 2>/dev/null | head -n 1)
 add_to_env "platform_android_jar" "$PLATFORM_ANDROID_JAR"
 echo "✅ Platform 配置完毕: $LATEST_STABLE"
 
 # ==============================
-# 6. 安装 Kotlin 编译器
+# 5. 安装 Kotlin 编译器
 # ==============================
-echo "📦 [4/5] 正在处理 Kotlin 编译器..."
+echo "📦 [3/5] 正在处理 Kotlin 编译器..."
 
 if [ ! -d "kotlinc" ]; then
     echo "⬇️ 未检测到缓存，正在通过 GitHub API 获取最新 Kotlin 编译器..."
@@ -169,9 +170,9 @@ add_to_path "$KOTLIN_BIN_PATH"
 echo "✅ Kotlin 编译器配置完毕"
 
 # ==============================
-# 7. 安装 Go 编译器
+# 6. 安装 Go 编译器
 # ==============================
-echo "📦 [5/5] 正在处理 Go 编译器..."
+echo "📦 [4/5] 正在处理 Go 编译器..."
 
 if [ ! -d "go" ]; then
     echo "⬇️ 未检测到缓存，正在获取最新稳定版 Go..."
@@ -194,7 +195,7 @@ add_to_path "$GO_BIN_PATH"
 echo "✅ Go 编译器配置完毕"
 
 # ==============================
-# 8. 完成提示
+# 7. 完成提示
 # ==============================
 echo "========================================="
 echo "🎉 所有依赖环境配置完毕！"
