@@ -8,6 +8,8 @@ on:
 
 env:
   GH_TOKEN: ${{ github.token }}
+  # 脚本内 curl GitHub API 认证用（避免未认证 60 次/小时限流）
+  GITHUB_TOKEN: ${{ github.token }}
 
 jobs:
   build:

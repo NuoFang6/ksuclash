@@ -156,7 +156,12 @@ echo "📦 [3/5] 正在处理 Kotlin 编译器..."
 
 if [ ! -d "kotlinc" ]; then
     echo "⬇️ 未检测到缓存，正在通过 GitHub API 获取最新 Kotlin 编译器..."
-    KOTLIN_URL=$(curl -s https://api.github.com/repos/JetBrains/kotlin/releases/latest | grep -o 'https://github.com/JetBrains/kotlin/releases/download/[^"]*kotlin-compiler-[^"]*\.zip' | head -n 1)
+    # CI 中带 token 认证，避免未认证 60 次/小时限流
+    KOTLIN_AUTH=()
+    if is_ci && [ -n "$GITHUB_TOKEN" ]; then
+        KOTLIN_AUTH+=(-H "Authorization: token $GITHUB_TOKEN")
+    fi
+    KOTLIN_URL=$(curl -s "${KOTLIN_AUTH[@]}" https://api.github.com/repos/JetBrains/kotlin/releases/latest | grep -o 'https://github.com/JetBrains/kotlin/releases/download/[^"]*kotlin-compiler-[^"]*\.zip' | head -n 1)
     
     curl -fSL "$KOTLIN_URL" -o kotlin.zip
     unzip -q kotlin.zip
