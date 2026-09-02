@@ -24,6 +24,10 @@ LDFLAGS="
 echo "🔨 编译 mihomo..."
 cd "$ROOT/mihomo"
 
+# 悬浮面板脚本供 hub/route 的 go:embed 使用（mihomo-patches/0005）。
+# panel.js 不入补丁，始终以本仓库最新版为准。
+cp "$ROOT/module/webroot-src/panel.js" hub/route/panel.js
+
 CGO_ENABLED=0 go build \
     -tags "with_gvisor" \
     -trimpath \

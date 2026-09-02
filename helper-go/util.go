@@ -3,8 +3,18 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"time"
 )
+
+// runCmd 执行外部命令并返回标准输出（getprop 等系统探测用）。
+func runCmd(name string, args ...string) (string, error) {
+	out, err := exec.Command(name, args...).Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
 
 // appendModuleLog 追加模块日志。
 func appendModuleLog(format string, a ...any) {

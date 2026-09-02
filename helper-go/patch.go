@@ -14,7 +14,8 @@ import (
 //   - 保留用户的 external-controller / secret / 其余一切键值
 //   - 绝不读写修改用户文件 config.yaml（只读）
 //
-// 同步生成 panel-config.js（悬浮面板用：API 地址 + secret）。
+// 悬浮面板配置（API 地址 + secret）由 mihomo 服务端注入 HTML 响应完成
+// （mihomo-patches/0005-serve-ui-panel.patch），此处不再生成 panel-config.js。
 
 // defaultTun / defaultDNS 与模块默认模板一致。
 var defaultTun = map[string]any{
@@ -104,28 +105,6 @@ func cloneMap(src map[string]any) map[string]any {
 	return dst
 }
 
-// writePanelConfig 生成 DATA_UI_DIR/panel-config.js。
-func writePanelConfig(cfg map[string]any) error {
-	host, port := "127.0.0.1", "9090"
-	if ec, ok := cfg["external-controller"].(string); ok && ec != "" {
-		h, p, ok2 := splitHostPort(ec)
-		if ok2 {
-			host, port = h, p
-		}
-	}
-	secret, _ := cfg["secret"].(string)
-
-	var b strings.Builder
-	b.WriteString("window.__SUCLASH__={api:{protocol:\"http\",host:\"")
-	b.WriteString(escapeJS(host))
-	b.WriteString("\",port:\"")
-	b.WriteString(escapeJS(port))
-	b.WriteString("\",secret:\"")
-	b.WriteString(escapeJS(secret))
-	b.WriteString("\"}};\n")
-	return os.WriteFile(dataUIDir+"/panel-config.js", []byte(b.String()), 0o644)
-}
-
 // splitHostPort 解析 external-controller 值（支持 IPv4/域名/IPv6[...]）。
 func splitHostPort(s string) (string, string, bool) {
 	s = strings.TrimSpace(s)
@@ -159,11 +138,6 @@ func normHost(h string) string {
 	return h
 }
 
-func escapeJS(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "'", `\'`, "\n", `\n`, "\r", "")
-	return r.Replace(s)
-}
-
 // ensureDefaultConfig 首次安装无用户配置时放置默认模板。
 func ensureDefaultConfig() (bool, error) {
 	if _, err := os.Stat(userCfg); err == nil {
@@ -179,7 +153,7 @@ func ensureDefaultConfig() (bool, error) {
 	return true, nil
 }
 
-// doPatch: 读取用户配置 → 强制字段 → runtime.yaml + panel-config.js
+// doPatch: 读取用户配置 → 强制字段 → runtime.yaml
 func doPatch() error {
 	_, err := ensureDefaultConfig()
 	if err != nil {
@@ -199,10 +173,7 @@ func doPatch() error {
 	if _, ok := cfg["external-controller"]; !ok {
 		cfg["external-controller"] = apiAddr
 	}
-	if err := writeRuntime(cfg); err != nil {
-		return err
-	}
-	return writePanelConfig(cfg)
+	return writeRuntime(cfg)
 }
 
 func cmdPatch(args []string) error {

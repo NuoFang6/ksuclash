@@ -1,0 +1,134 @@
+diff --git a/hub/route/server.go b/hub/route/server.go
+index 6d37d480..abd688bb 100644
+--- a/hub/route/server.go
++++ b/hub/route/server.go
+@@ -147,9 +147,8 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
+ 		r.Group(func(r chi.Router) {
+ 			fs := http.StripPrefix("/ui", http.FileServer(http.Dir(uiPath)))
+ 			r.Get("/ui", http.RedirectHandler("/ui/", http.StatusTemporaryRedirect).ServeHTTP)
+-			r.Get("/ui/*", func(w http.ResponseWriter, r *http.Request) {
+-				fs.ServeHTTP(w, r)
+-			})
++			// 包一层注入中间件：text/html 注入悬浮面板，/ui/panel.js 由内嵌脚本服务
++			r.Get("/ui/*", injectUIPanel(secret, fs).ServeHTTP)
+ 		})
+ 	}
+ 	if len(dohServer) > 0 && dohServer[0] == '/' {
+diff --git a/hub/route/ui_panel.go b/hub/route/ui_panel.go
+new file mode 100644
+index 00000000..91da0cd1
+--- /dev/null
++++ b/hub/route/ui_panel.go
+@@ -0,0 +1,112 @@
++package route
++
++import (
++	"bytes"
++	_ "embed"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"strconv"
++	"strings"
++
++	"github.com/metacubex/http"
++)
++
++// SU Clash 悬浮面板：服务端运行时注入，不修改 external-ui 目录中的任何文件。
++//   - GET /ui/panel.js      → 返回面板脚本（内嵌于二进制；磁盘同名文件优先，便于调试。
++//                             官方「升级面板」POST /upgrade/ui 清空目录后依然可用）
++//   - GET /ui/* text/html   → 在 </body> 前注入 window.__SUCLASH__ 配置与 panel.js 引用
++//
++// 面板 API 的 host/port/protocol 由页面 location 推导（与访问入口同源，天然适配
++// 127.0.0.1 / 局域网 IP / WebUI 代理等入口），仅 secret 由服务端注入。
++// /ui 路由本就不经鉴权，secret 暴露级别与旧版 panel-config.js 静态文件一致。
++
++//go:embed panel.js
++var panelJS []byte
++
++// injectUIPanel 包装 /ui/* 的静态文件服务，注入悬浮面板。
++func injectUIPanel(secret string, next http.Handler) http.Handler {
++	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		// 面板脚本本体：内嵌，目录被官方升级覆盖后仍可服务
++		if r.URL.Path == "/ui/panel.js" {
++			b := panelJS
++			if data, err := os.ReadFile(filepath.Join(uiPath, "panel.js")); err == nil && len(data) > 0 {
++				b = data
++			}
++			h := w.Header()
++			h.Set("Content-Type", "application/javascript; charset=utf-8")
++			h.Set("Cache-Control", "no-store")
++			h.Set("Content-Length", strconv.Itoa(len(b)))
++			_, _ = w.Write(b)
++			return
++		}
++
++		bw := &htmlBuffer{ResponseWriter: w}
++		next.ServeHTTP(bw, r)
++		if bw.isHTML {
++			writePanelHTML(w, bw, secret)
++		}
++	})
++}
++
++// writePanelHTML 将缓冲的 HTML 响应注入面板后回写。
++func writePanelHTML(w http.ResponseWriter, bw *htmlBuffer, secret string) {
++	body := bw.buf.Bytes()
++	secretJSON, _ := json.Marshal(secret) // 带引号的 JSON 字符串字面量，转义完备
++	inject := []byte("<script>window.__SUCLASH__={api:{protocol:location.protocol.replace(':','')," +
++		"host:location.hostname,port:location.port||(location.protocol==='https:'?'443':'80')," +
++		"secret:" + string(secretJSON) + "}};</script>" +
++		"<script src=\"./panel.js\"></script>")
++	if i := bytes.LastIndex(body, []byte("</body>")); i >= 0 {
++		out := make([]byte, 0, len(body)+len(inject))
++		out = append(out, body[:i]...)
++		out = append(out, inject...)
++		out = append(out, body[i:]...)
++		body = out
++	}
++	h := w.Header()
++	h.Set("Content-Length", strconv.Itoa(len(body)))
++	w.WriteHeader(bw.status)
++	_, _ = w.Write(body)
++}
++
++// htmlBuffer 仅缓冲 text/html 响应体；其余类型（静态资源、304 等）直通转发。
++type htmlBuffer struct {
++	http.ResponseWriter
++	status      int
++	wroteHeader bool
++	isHTML      bool
++	buf         bytes.Buffer
++}
++
++func (w *htmlBuffer) WriteHeader(status int) {
++	if w.wroteHeader {
++		return
++	}
++	w.wroteHeader = true
++	w.status = status
++	if status == http.StatusOK && strings.Contains(w.Header().Get("Content-Type"), "text/html") {
++		w.isHTML = true
++		w.Header().Del("Content-Length") // 注入后由 writePanelHTML 重算
++		return
++	}
++	w.ResponseWriter.WriteHeader(status)
++}
++
++func (w *htmlBuffer) Write(p []byte) (int, error) {
++	if !w.wroteHeader {
++		w.WriteHeader(http.StatusOK)
++	}
++	if w.isHTML {
++		return w.buf.Write(p)
++	}
++	return w.ResponseWriter.Write(p)
++}
++
++func (w *htmlBuffer) Flush() {
++	if !w.isHTML {
++		if f, ok := w.ResponseWriter.(http.Flusher); ok {
++			f.Flush()
++		}
++	}
++}

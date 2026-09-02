@@ -34,3 +34,4 @@ build-avd/
 
 # 项目数据/记忆（不入库）
 .workbuddy/
+tmp/.gh_token

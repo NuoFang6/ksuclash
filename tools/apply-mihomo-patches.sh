@@ -27,7 +27,13 @@ fi
 # 查找所有 .patch 文件并按名称排序 (确保 0001 在 0002 之前应用)
 # 使用 nullglob 防止目录为空时 bash 将 "*.patch" 当作普通字符串处理
 shopt -s nullglob
-PATCH_FILES=("$PATCHES_DIR"/*.patch)
+# Git Bash (Windows) 下 pwd 产生 POSIX 风格路径（/c/...），git apply 无法识别，
+# 统一转换为 C:/... 混合风格（cygpath 在 Git Bash 中必然存在，Linux 下无此命令则原样保留）
+PATCHES_DIR_NATIVE="$PATCHES_DIR"
+if command -v cygpath >/dev/null 2>&1; then
+    PATCHES_DIR_NATIVE=$(cygpath -m "$PATCHES_DIR")
+fi
+PATCH_FILES=("$PATCHES_DIR_NATIVE"/*.patch)
 shopt -u nullglob
 
 if [ ${#PATCH_FILES[@]} -eq 0 ]; then

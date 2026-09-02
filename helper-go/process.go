@@ -202,7 +202,6 @@ func cmdStart(args []string) error {
 	}
 	setTile("on")
 	appendModuleLog("core started (pid %d)", pid)
-	_ = cmdRepatchUI(nil) // 幂等自愈注入（原 clashctl start 成功后的 repatch 语义）
 	if !ready {
 		fmt.Printf("started (pid %d) but api not ready in %ds, watchdog will monitor\n", pid, startWaitSec)
 	} else {

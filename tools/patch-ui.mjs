@@ -1,20 +1,22 @@
 #!/usr/bin/env node
 /**
- * patch-ui.mjs — 将 zashboard 构建产物打包进模块 ui/ 目录并注入悬浮面板
- * 用法: node devtools/patch-ui.mjs <zashboard-dist> <module-root>
- *   <zashboard-dist>  zashboard 的构建产物目录（如 build/dist 或临时构建目录）
- *   <module-root>     模块根目录（默认 module/）
+ * patch-ui.mjs — 将 zashboard 构建产物原样打包进模块 ui/ 目录（零修改）
+ *
+ * 面板注入已移至 mihomo 服务端（mihomo-patches/0005-serve-ui-panel.patch）：
+ * /ui/* 的 text/html 响应在运行时注入悬浮面板，panel.js 内嵌于核心二进制。
+ * 因此本脚本不再改动 index.html，也不再写入 panel.js / panel-config.js，
+ * zashboard 官方「升级面板」覆盖目录后注入依然生效。
+ *
+ * 用法: node tools/patch-ui.mjs [zashboard-dist] [module-root]
+ *   [zashboard-dist]  默认 tmp/zashboard（get-zashboard.sh 的下载解压目录）
+ *   [module-root]     默认 module/
  */
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
-const [dist, modRoot] = process.argv.slice(2)
-if (!dist || !modRoot) {
-  console.error('usage: node devtools/patch-ui.mjs <zashboard-dist> <module-root>')
-  process.exit(1)
-}
+const dist = process.argv[2] || 'tmp/zashboard'
+const modRoot = process.argv[3] || 'module'
 const uiDir = join(modRoot, 'ui')
-const panelSrc = join(modRoot, 'webroot-src')
 
 if (!existsSync(join(dist, 'index.html'))) {
   console.error(`dist index.html not found in ${dist}`)
@@ -24,26 +26,5 @@ if (!existsSync(join(dist, 'index.html'))) {
 rmSync(uiDir, { recursive: true, force: true })
 mkdirSync(uiDir, { recursive: true })
 cpSync(dist, uiDir, { recursive: true })
-cpSync(join(panelSrc, 'panel.js'), join(uiDir, 'panel.js'))
 
-// 注入悬浮面板：放在应用入口之前执行（classic script 先于 module script）
-let html = readFileSync(join(uiDir, 'index.html'), 'utf8')
-const inject =
-  '<script src="./panel-config.js"></script>\n' +
-  '<script src="./panel.js"></script>\n'
-if (!html.includes('panel.js')) {
-  if (html.includes('</body>')) {
-    html = html.replace('</body>', inject + '</body>')
-  } else {
-    html += inject
-  }
-  writeFileSync(join(uiDir, 'index.html'), html)
-}
-
-// 默认 panel-config（设备端每次启动会被 patch_config.sh 按用户配置重写）
-writeFileSync(
-  join(uiDir, 'panel-config.js'),
-  'window.__SUCLASH__={api:{protocol:"http",host:"127.0.0.1",port:"9090",secret:""}};\n',
-)
-
-console.log(`ui packaged: ${uiDir}`)
+console.log(`ui packaged (unmodified zashboard dist): ${uiDir}`)

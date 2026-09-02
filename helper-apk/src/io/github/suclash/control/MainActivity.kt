@@ -62,7 +62,7 @@ class MainActivity : Activity() {
     private fun refreshEntry() {
         scope.launch {
             val out = withContext(Dispatchers.IO) {
-                Root.exec("sh ${Root.SCRIPT} repatch-ui; sh ${Root.SCRIPT} status; sh ${Root.SCRIPT} panel").out
+                Root.exec("sh ${Root.SCRIPT} status; sh ${Root.SCRIPT} panel").out
             }
             val state = STATE_RE.find(out)?.groupValues?.get(1) ?: "noroot"
             val panelUrl = PANEL_RE.find(out)?.groupValues?.get(1)

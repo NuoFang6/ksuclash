@@ -1,9 +1,11 @@
-/* SU Clash 悬浮面板 - 注入 zashboard
+/* SU Clash 悬浮面板 - 由 mihomo 在 /ui/* 的 text/html 响应中服务端注入
  *  - 可拖拽气泡，点按展开全屏覆盖层（核心操作）
  *  - 启动/停止/重启 经 window.ksu.exec 调用模块 clashctl（KSU 管理器 WebUI 或配套 App 内可用；
  *    普通浏览器自动降级为仅状态显示）
  *  - 启动/重启成功后自动刷新页面（zashboard 重连）；停止后覆盖层显示"核心未运行"
  *  - 首次访问自动导入后端（读取 window.__SUCLASH__ 注入的 API 地址与 secret）
+ *  - 脚本内嵌于 mihomo 二进制（mihomo-patches/0005），官方「升级面板」清空目录后仍可用，
+ *    无需任何文件级自愈
  */
 ;(function () {
   'use strict'
@@ -88,47 +90,6 @@
       resolve(out)
     })
   }
-
-  // ---------- 事件式自愈：拦截「升级面板」----------
-  // zashboard 的「升级面板」调用 POST /upgrade/ui，mihomo 会在响应返回前完成
-  // downloadUI（清空 external-ui 并解压官方 zashboard），抹掉我们的注入。
-  // 这里拦截 XHR/fetch，在响应到达（即更新完成）后经 root 桥执行 repatch-ui，
-  // 事件触发、无轮询；仅在存在 root 桥的环境生效（App / KSU 管理器 WebUI）。
-  function hookUiUpgrade() {
-    if (!hasRoot) return
-    function afterUpgrade() {
-      rootExec(CTL + ' repatch-ui').catch(function () {})
-    }
-    function isUpgradeUi(u) {
-      return /\/upgrade\/ui(?:\?|$)/.test(String(u || ''))
-    }
-    try {
-      var _open = XMLHttpRequest.prototype.open
-      var _send = XMLHttpRequest.prototype.send
-      XMLHttpRequest.prototype.open = function (method, url) {
-        this.__sucUpgrade = isUpgradeUi(url)
-        return _open.apply(this, arguments)
-      }
-      XMLHttpRequest.prototype.send = function () {
-        if (this.__sucUpgrade) {
-          this.addEventListener('load', afterUpgrade)
-          this.addEventListener('error', afterUpgrade)
-        }
-        return _send.apply(this, arguments)
-      }
-    } catch (e) {}
-    try {
-      var _fetch = window.fetch
-      window.fetch = function () {
-        var p = _fetch.apply(this, arguments)
-        if (isUpgradeUi(arguments[0])) {
-          p.then(afterUpgrade).catch(afterUpgrade)
-        }
-        return p
-      }
-    } catch (e) {}
-  }
-  hookUiUpgrade()
 
   function getState() {
     return rootExec(CTL + ' status').then(function (out) {

@@ -45,9 +45,8 @@ jobs:
         with:
           wait-timeout-minutes: 20
       
-      # - name: 上传模块至 artifacts
-      #   uses: actions/upload-artifact@v7
-      #   with:
-      #     archive: false # 避免 github 二次 zip
-      #     if-no-files-found: error
-      #     path: build/output/suclash_module.zip
+      - name: 上传模块至 artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          if-no-files-found: error
+          path: build/module.zip
