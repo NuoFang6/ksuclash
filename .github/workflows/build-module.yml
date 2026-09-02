@@ -86,10 +86,11 @@ jobs:
         run: |
           bash tools/package-module.sh
       
-      - name: Setup tmate session
+      - name: Setup upterm session
+        uses: owenthereal/action-upterm@v1
         if: ${{ failure() }}
-        uses: mxschmitt/action-tmate@v3
-        timeout-minutes: 60
+        with:
+          wait-timeout-minutes: 20
       
       # - name: 上传模块至 artifacts
       #   uses: actions/upload-artifact@v7
