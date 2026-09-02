@@ -20,10 +20,10 @@ jobs:
         include:
           # 每个架构都独立编译
           # 常见手机架构 aarch64
-          - goos: android
-            goarch: arm64
+          # - goos: android
+          #   goarch: arm64
           # avd x86_64 模拟器
-          - arch: android
+          - goos: android
             goarch: amd64
 
     steps:
@@ -85,6 +85,11 @@ jobs:
       - name: 打包模块
         run: |
           bash tools/package-module.sh
+      
+      - name: Setup tmate session
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3
+        timeout-minutes: 60
       
       # - name: 上传模块至 artifacts
       #   uses: actions/upload-artifact@v7
