@@ -30,61 +30,14 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v7
 
-      - name: 设置环境变量
+      - name: 接收环境变量
         run: |
-          mkdir -p ./tmp
-
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
           echo "GOOS=${{ matrix.goos }}" >> $GITHUB_ENV
           echo "GOARCH=${{ matrix.goarch }}" >> $GITHUB_ENV
-          echo "$GOOS $GOARCH" > helper-go/env.txt
 
-      - name: 准备 mihomo
+      - name: CI
         run: |
-          echo "当前 mihomo 版本: $(git submodule status --recursive | awk '{print $1}'), 尝试更新..."
-          git submodule update --init --recursive
-          git submodule update --remote --merge
-          git diff --quiet && git diff --staged --quiet || (
-            git add .
-            git commit -m "[skip ci] Chore: auto-update submodule to latest version"
-          )
-          echo "更新后的 mihomo 版本: $(git submodule status --recursive | awk '{print $1}')"
-
-          echo "应用 mihomo 补丁..."
-          bash tools/apply-mihomo-patches.sh
-
-      - name: 下载最新 zashboard
-        run: |
-          zashboard_repo="Zephyruso/zashboard"
-          zashboard_file="dist-no-fonts.zip"
-          zashboard_ver=$(gh release view --repo $zashboard_repo --json tagName --jq '.tagName')
-          echo "zashboard_ver=$zashboard_ver" >> $GITHUB_ENV
-          zashboard_commit=$(gh release view --repo $zashboard_repo --json targetCommitish --jq '.targetCommitish[:7]')
-          echo "zashboard_commit=$zashboard_commit" >> $GITHUB_ENV
-          gh release download --repo $zashboard_repo --pattern "$zashboard_file"
-          unzip -o "$zashboard_file" -d tmp/zashboard
-
-      - name: 准备 helper-apk 构建工具
-        run: |
-          bash tools/get-tools.sh
-
-      - name: 编译 helper-go
-        run: |
-          bash tools/build-helper-go.sh
-
-      - name: 编译 helper-apk
-        run: |
-          bash tools/build-helper-apk.sh
-
-      - name: 编译 mihomo
-        run: |
-          bash tools/build-mihomo.sh
-
-      - name: 打包模块
-        run: |
-          bash tools/package-module.sh
+          bash tools/ci.sh
       
       - name: Setup upterm session
         uses: owenthereal/action-upterm@v1
