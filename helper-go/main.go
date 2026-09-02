@@ -12,11 +12,30 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
+	_ "time/tzdata" // 内嵌 tzdb：Android 无 /usr/share/zoneinfo，TZ 指针才有库可查
 )
 
 const (
 	version = "1.0.0"
 )
+
+// init 设置本地时区：Android 无 /etc/localtime，Go 拿不到 TZ 时默认 UTC，
+// module.log/panic 等时间戳会与设备本地时间差数小时（取证误导源）。
+// 从 persist.sys.timezone 读 IANA 名设置 TZ；time.Local 惰性初始化，
+// 在首次时间格式化前生效。
+func init() {
+	if os.Getenv("TZ") != "" {
+		return
+	}
+	out, err := runCmd("getprop", "persist.sys.timezone")
+	if err != nil {
+		return
+	}
+	if tz := strings.TrimSpace(out); tz != "" {
+		_ = os.Setenv("TZ", tz)
+	}
+}
 
 func usage() {
 	fmt.Fprint(os.Stderr, `SU Clash helper v` + version + `

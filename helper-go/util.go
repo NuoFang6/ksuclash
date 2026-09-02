@@ -71,6 +71,16 @@ func procIsMihomo(pid int) bool {
 	return len(b) > 0 && (containsBytes(b, []byte("mihomo")) || containsBytes(b, []byte(runtimeCfg)))
 }
 
+// procIsWatchdog 校验 /proc/<pid>/cmdline 是本 helper 的 watchdog 进程，
+// 防 PID 复用误判（重启后旧 pid 被系统回收给无关进程，仅 kill 0 会误报存活）。
+func procIsWatchdog(pid int) bool {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return false
+	}
+	return containsBytes(b, []byte("suclash_helper")) && containsBytes(b, []byte("watchdog"))
+}
+
 func containsBytes(hay, needle []byte) bool {
 	if len(needle) == 0 || len(hay) < len(needle) {
 		return false

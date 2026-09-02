@@ -1,0 +1,221 @@
+From a8b943e4e77d4407de095f8b719f27bb71ad9a3d Mon Sep 17 00:00:00 2001
+From: NuoFang6 <991921514@qq.com>
+Date: Tue, 1 Sep 2026 22:41:36 +0800
+Subject: [PATCH] perf: cache uid-to-process-name resolution on Android
+
+All processes of an app share one UID and the name is stable for the
+app's lifetime, so caching skips the /proc scan for every connection
+from the same app. TTL 60s, bounded, lazy expiry.
+---
+ component/process/cache.go         | 64 +++++++++++++++++++++
+ component/process/cache_test.go    | 91 ++++++++++++++++++++++++++++++
+ component/process/process_linux.go | 17 ++++++
+ 3 files changed, 172 insertions(+)
+ create mode 100644 component/process/cache.go
+ create mode 100644 component/process/cache_test.go
+
+diff --git a/component/process/cache.go b/component/process/cache.go
+new file mode 100644
+index 00000000..bac524f0
+--- /dev/null
++++ b/component/process/cache.go
+@@ -0,0 +1,64 @@
++package process
++
++import (
++	"sync"
++	"time"
++)
++
++// uidNameCache caches uid -> process name on Android. All processes of an app
++// share one UID and the name is stable for the app's lifetime, so a cache hit
++// avoids rescanning /proc (the dominant cost of findProcessName) for every
++// connection from the same app.
++//
++// Expiry is lazy (checked on access, no background goroutine) so an idle core
++// stays wakeup-free. Bounded by uidNameCacheSize; on overflow expired entries
++// are pruned and, if still full, the map is reset (uids are cheap to
++// re-resolve).
++type uidNameEntry struct {
++	name    string
++	expires time.Time
++}
++
++const (
++	uidNameCacheTTL  = 60 * time.Second
++	uidNameCacheSize = 512
++)
++
++var (
++	uidNameMu    sync.Mutex
++	uidNameCache = make(map[uint32]uidNameEntry, 64)
++)
++
++func uidNameCacheGet(uid uint32) (string, bool) {
++	uidNameMu.Lock()
++	defer uidNameMu.Unlock()
++	e, ok := uidNameCache[uid]
++	if !ok {
++		return "", false
++	}
++	if time.Now().After(e.expires) {
++		delete(uidNameCache, uid)
++		return "", false
++	}
++	return e.name, true
++}
++
++func uidNameCachePut(uid uint32, name string) {
++	if name == "" {
++		return
++	}
++	uidNameMu.Lock()
++	defer uidNameMu.Unlock()
++	if len(uidNameCache) >= uidNameCacheSize {
++		now := time.Now()
++		for k, e := range uidNameCache {
++			if now.After(e.expires) {
++				delete(uidNameCache, k)
++			}
++		}
++		if len(uidNameCache) >= uidNameCacheSize {
++			uidNameCache = make(map[uint32]uidNameEntry, 64)
++		}
++	}
++	uidNameCache[uid] = uidNameEntry{name: name, expires: time.Now().Add(uidNameCacheTTL)}
++}
+diff --git a/component/process/cache_test.go b/component/process/cache_test.go
+new file mode 100644
+index 00000000..ef0cd88d
+--- /dev/null
++++ b/component/process/cache_test.go
+@@ -0,0 +1,91 @@
++package process
++
++import (
++	"testing"
++	"time"
++)
++
++func TestUIDNameCachePutGet(t *testing.T) {
++	uidNameMu.Lock()
++	uidNameCache = make(map[uint32]uidNameEntry, 64)
++	uidNameMu.Unlock()
++
++	uidNameCachePut(10084, "com.android.htmlviewer")
++	got, ok := uidNameCacheGet(10084)
++	if !ok || got != "com.android.htmlviewer" {
++		t.Fatalf("cache hit failed: got=%q ok=%v", got, ok)
++	}
++
++	// miss for unknown uid
++	if _, ok := uidNameCacheGet(9999); ok {
++		t.Fatalf("expected miss for unknown uid")
++	}
++
++	// empty name is not stored
++	uidNameCachePut(12345, "")
++	if _, ok := uidNameCacheGet(12345); ok {
++		t.Fatalf("empty name should not be cached")
++	}
++}
++
++func TestUIDNameCacheExpiry(t *testing.T) {
++	uidNameMu.Lock()
++	uidNameCache = make(map[uint32]uidNameEntry, 64)
++	uidNameMu.Unlock()
++
++	uidNameCachePut(10084, "com.android.htmlviewer")
++
++	// force the entry to be already-expired by rewriting its expires field
++	uidNameMu.Lock()
++	uidNameCache[10084] = uidNameEntry{name: "com.android.htmlviewer", expires: time.Now().Add(-time.Second)}
++	uidNameMu.Unlock()
++
++	if _, ok := uidNameCacheGet(10084); ok {
++		t.Fatalf("expired entry should be evicted on access")
++	}
++	// after eviction the map no longer holds it
++	uidNameMu.Lock()
++	_, stillThere := uidNameCache[10084]
++	uidNameMu.Unlock()
++	if stillThere {
++		t.Fatalf("expired entry should be deleted")
++	}
++}
++
++func TestUIDNameCacheOverflowResets(t *testing.T) {
++	uidNameMu.Lock()
++	uidNameCache = make(map[uint32]uidNameEntry, 64)
++	uidNameMu.Unlock()
++
++	// fill beyond capacity; overflow must prune expired then reset, never panic
++	for i := uint32(10000); i < 10000+uidNameCacheSize+64; i++ {
++		uidNameCachePut(i, "com.app.test")
++	}
++	uidNameMu.Lock()
++	n := len(uidNameCache)
++	uidNameMu.Unlock()
++	if n > uidNameCacheSize {
++		t.Fatalf("cache exceeded capacity: %d > %d", n, uidNameCacheSize)
++	}
++}
++
++func TestUIDNameCacheConcurrent(t *testing.T) {
++	uidNameMu.Lock()
++	uidNameCache = make(map[uint32]uidNameEntry, 64)
++	uidNameMu.Unlock()
++
++	done := make(chan struct{})
++	for g := 0; g < 8; g++ {
++		go func(base uint32) {
++			for i := uint32(0); i < 2000; i++ {
++				uid := base + i%64
++				uidNameCachePut(uid, "com.app.test")
++				uidNameCacheGet(uid)
++			}
++			done <- struct{}{}
++		}(uint32(g * 64))
++	}
++	for g := 0; g < 8; g++ {
++		<-done
++	}
++}
+diff --git a/component/process/process_linux.go b/component/process/process_linux.go
+index 2e36f674..1896d0f2 100644
+--- a/component/process/process_linux.go
++++ b/component/process/process_linux.go
+@@ -79,6 +79,18 @@ func findProcessName(network string, ip netip.Addr, srcPort int) (uint32, string
+ 	if err != nil {
+ 		return 0, "", err
+ 	}
++
++	// Fast path (Android only): the uid -> name mapping is stable, so a cache
++	// hit skips both /proc scans below. Non-Android is not cached because the
++	// inode-based result is the owning process's exe path, which can differ per
++	// process under the same uid.
++	if runtime.GOOS == "android" {
++		name, ok := uidNameCacheGet(uid)
++		if ok {
++			return uid, name, nil
++		}
++	}
++
+ 	pp, err := resolveProcessNameByProcSearch(inode, uid)
+ 	if runtime.GOOS == "android" {
+ 		// if inode-based /proc/<pid>/fd resolution fails but UID is known,
+@@ -86,6 +98,11 @@ func findProcessName(network string, ip netip.Addr, srcPort int) (uint32, string
+ 		if err != nil && uid != 0 {
+ 			pp, err = resolveProcessNameByUID(uid)
+ 		}
++		// uid 0 hosts many unrelated processes (sh/su/mihomo/daemons); caching
++		// it would mis-attribute one root process's name to all of them.
++		if err == nil && uid != 0 {
++			uidNameCachePut(uid, pp)
++		}
+ 	}
+ 	return uid, pp, err
+ }
+-- 
+2.55.0.windows.3
+

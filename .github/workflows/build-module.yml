@@ -3,135 +3,117 @@ name: build-module
 on:
   workflow_dispatch:
   schedule:
-    # 每周一 03:00 UTC 自动重建：拉取最新 mihomo / zashboard 等依赖（自更新）
-    - cron: '0 3 * * 1'
+    # 每周一 08:00 UTC 自动重建：拉取最新 mihomo / zashboard 等依赖（自更新）
+    - cron: "0 8 * * 1"
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          # 每个架构独立打包成一个 zip（模块内不再做动态架构选择）
-          - arch: arm64
+          # 每个架构都独立编译
+          # 常见手机架构 aarch64
+          - goos: android
             goarch: arm64
-            mihomo_asset: android-arm64-v8
-            clang_prefix: aarch64-linux-android
-            elf_pattern: 'ELF 64-bit.*ARM aarch64'
-          - arch: amd64
+          # avd x86_64 模拟器
+          - arch: android
             goarch: amd64
-            mihomo_asset: android-amd64
-            clang_prefix: x86_64-linux-android
-            elf_pattern: 'ELF 64-bit.*x86-64'
+
     steps:
-      - uses: actions/checkout@v5
+      - name: 检出代码
+        uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '22'
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: helper-go/go.mod
-          cache-dependency-path: helper-go/go.sum
-
-      - name: Install pnpm (corepack)
-        run: corepack enable && corepack prepare pnpm@latest --activate
-
-      # 本 job 只处理单个架构（${{ matrix.arch }}）。helper 虽仅依赖 yaml.v3，
-      # 但 android/amd64 的 syscall/net 需要 cgo（NDK），统一走 cgo 更一致。
-      # runner 预装 NDK。
-      - name: Fetch mihomo core + build Go helper (${{ matrix.arch }})
-        id: mihomo
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: 设置环境变量
         run: |
-          set -euo pipefail
-          mkdir -p module/bin
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          # 定位 NDK clang（ubuntu runner 预装，ANDROID_NDK_HOME 已指向默认 NDK）
-          NDK_ROOT="${ANDROID_NDK_HOME:-}"
-          if [ -z "$NDK_ROOT" ] || [ ! -d "$NDK_ROOT" ]; then
-            NDK_ROOT=$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | tail -1 || true)
+          echo "GOOS=${{ matrix.goos }}" >> $GITHUB_ENV
+          echo "GOARCH=${{ matrix.goarch }}" >> $GITHUB_ENV
+          echo "$GOOS $GOARCH" > helper-go/env.txt
+
+      - name: 准备 mihomo
+        run: |
+          echo "当前 mihomo 版本: $(git submodule status --recursive | awk '{print $1}'), 尝试更新..."
+          git submodule update --init --recursive
+          git submodule update --remote --merge
+          git diff --quiet && git diff --staged --quiet || (
+            git add .
+            git commit -m "[skip ci] Chore: auto-update submodule to latest version"
+          )
+          echo "更新后的 mihomo 版本: $(git submodule status --recursive | awk '{print $1}')"
+
+          echo "应用 mihomo 补丁..."
+          bash tools/apply-mihomo-patches.sh
+
+      - name: 下载最新 zashboard
+        run: |
+          zashboard_repo="Zephyruso/zashboard"
+          zashboard_file="dist-no-fonts.zip"
+          zashboard_ver=$(gh release view --repo $zashboard_repo --json tagName --jq '.tagName')
+          echo "zashboard_ver=$zashboard_ver" >> $GITHUB_ENV
+          zashboard_commit=$(gh release view --repo $zashboard_repo --json targetCommitish --jq '.targetCommitish[:7]')
+          echo "zashboard_commit=$zashboard_commit" >> $GITHUB_ENV
+
+          curl -L https://github.com/$zashboard_repo/releases/latest/download/dist-no-fonts.zip -o tmp/zashboard.zip
+          zashboard_expected_sha=$(gh release view --repo $zashboard_repo --json assets --jq ".assets[] | select(.name==\"$zashboard_file\") | .digest" | cut -d: -f2)
+          zashboard_actual_sha=$(sha256sum tmp/zashboard.zip | awk '{print $1}')
+          if [ "$zashboard_expected_sha" = "$zashboard_actual_sha" ]; then
+              echo "zashboard 下载成功，校验通过！"
+          else
+              echo "校验失败！"
+              echo "预期 $zashboard_expected_sha"
+              echo "实际 $zashboard_actual_sha"
+              exit 1
           fi
-          [ -n "$NDK_ROOT" ] && [ -d "$NDK_ROOT" ] || { echo "!! NDK not found" >&2; exit 1; }
-          CLANG_DIR="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          echo "NDK: $NDK_ROOT"
 
-          VER=$(gh api repos/MetaCubeX/mihomo/releases/latest --jq .tag_name)
-          echo "mihomo: $VER"
-          echo "version=$VER" >> "$GITHUB_OUTPUT"
-
-          # mihomo 核心（无后缀 bin/mihomo —— 本包已固定为 ${{ matrix.arch }}）
-          local_url=$(gh api repos/MetaCubeX/mihomo/releases/latest \
-            --jq ".assets[] | select(.name | contains(\"${{ matrix.mihomo_asset }}\")) | .browser_download_url" | head -1)
-          [ -n "$local_url" ] || { echo "!! missing mihomo asset: ${{ matrix.mihomo_asset }}" >&2; exit 1; }
-          curl -sSL -o /tmp/mihomo.gz "$local_url"
-          gunzip -c /tmp/mihomo.gz > module/bin/mihomo
-          chmod +x module/bin/mihomo
-          file module/bin/mihomo | tee /dev/stderr | grep -q '${{ matrix.elf_pattern }}'
-
-          # helper（无后缀 bin/suclash_helper；clang 文件名带 API 号，用 * 匹配）
-          cc=$(ls "$CLANG_DIR"/${{ matrix.clang_prefix }}*-clang 2>/dev/null | head -1)
-          [ -n "$cc" ] || { echo "!! NDK clang not found for ${{ matrix.clang_prefix }}" >&2; exit 1; }
-          ( cd helper-go && CGO_ENABLED=1 GOOS=android GOARCH=${{ matrix.goarch }} CC="$cc" \
-            go build -trimpath -o ../module/bin/suclash_helper . )
-          chmod +x module/bin/suclash_helper
-          file module/bin/suclash_helper | tee /dev/stderr | grep -q '${{ matrix.elf_pattern }}'
-
-      - name: Build zashboard (latest main, no bundled fonts)
-        run: |
-          git clone --depth 1 https://github.com/Zephyruso/zashboard zashboard
-          cd zashboard
-          pnpm install --frozen-lockfile
-          FONT=none pnpm build
-
-      - name: Package UI with floating panel
-        run: node devtools/patch-ui.mjs zashboard/dist module
-
-      - name: Build helper APK
-        run: |
-          bash devtools/get-tools.sh
-          bash devtools/build-apk.sh
-
-      - name: Pin target arch in customize.sh
-        # 模块不再动态选架构；写入本包架构，安装时仅做 abort 守卫（防装错包）。
-        run: sed -i "s/__TARGET_ARCH__/${{ matrix.arch }}/" module/customize.sh && grep -n TARGET_ARCH module/customize.sh
-
-      - name: Stamp version into module.prop
-        run: |
-          DATE=$(date +%Y%m%d)
-          CODE=$(date +%s | cut -c3-10)
-          VER="v1.0.0-${DATE}-mihomo${{ steps.mihomo.outputs.version }}"
-          sed -i "s/^version=.*/version=$VER/; s/^versionCode=.*/versionCode=$CODE/" module/module.prop
-          cat module/module.prop
-
-      - name: Assemble module zip
-        # 用 python packer：正斜杠路径 + 显式可执行位（部分安装器解压不保留 zip mode）
-        run: |
-          NAME="suclash-${{ matrix.arch }}-${{ steps.mihomo.outputs.version }}-$(date +%Y%m%d)"
-          python3 devtools/make-module-zip.py module "$NAME.zip"
-          unzip -l "$NAME.zip" | head -20
-          echo "ZIP_NAME=$NAME" >> "$GITHUB_ENV"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v5
+      - name: 设置 Golang
+        id: setup-go
+        uses: actions/setup-go@v7
         with:
-          name: ${{ env.ZIP_NAME }}
-          path: ${{ env.ZIP_NAME }}.zip
+          go-version: stable # 最新稳定版
+          check-latest: true # 始终使用最新的 Go 版本，而不是缓存优先
+          cache-dependency-path: | # 避免在不兼容的构建中重复使用缓存
+            helper-go/go.sum
+            helper-go/env.txt
+
+      - name: 显示编译环境
+        run: |
+          echo "Go:"
+          echo "安装的版本: ${{ steps.setup-go.outputs.go-version }}"
+          echo "缓存命中: ${{ steps.setup-go.outputs.cache-hit }}"
+          echo ""
+          echo "Zashboard:"
+          echo "版本: $zashboard_ver"
+          echo "提交: $zashboard_commit"
+
+      - name: 编译 helper-go
+        run: |
+          bash tools/build-helper-go.sh
+
+      - name: 下载 helper-apk 构建工具（build-tools / android.jar / kotlinc）
+        run: |
+          bash tools/get-tools.sh
+
+      - name: 编译 helper-apk
+        run: |
+          bash tools/build-helper-apk.sh
+
+      - name: 编译 mihomo
+        run: |
+          bash tools/build-mihomo.sh
+
+      - name: 打包模块
+        run: |
+          bash tools/package-module.sh
+      
+      - name: 上传模块至 artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          archive: false # 避免 github 二次 zip
           if-no-files-found: error
-
-      - name: Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ env.ZIP_NAME }}.zip
-          generate_release_notes: true
+          path: build/output/suclash_module.zip

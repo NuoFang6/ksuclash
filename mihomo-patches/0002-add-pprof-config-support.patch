@@ -1,0 +1,72 @@
+From fbcde431d9e91565d74fd21f9234bd80c16eb26e Mon Sep 17 00:00:00 2001
+From: NuoFang6 <991921514@qq.com>
+Date: Tue, 1 Sep 2026 22:41:02 +0800
+Subject: [PATCH] feat: add pprof config support
+
+pprof: true in config mounts /debug/pprof without forcing debug log level;
+enables block/mutex profile rates for profiling builds
+---
+ config/config.go | 3 +++
+ hub/hub.go       | 2 +-
+ main.go          | 4 ++++
+ 3 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/config/config.go b/config/config.go
+index c8c9e1c9..683e74f6 100644
+--- a/config/config.go
++++ b/config/config.go
+@@ -50,6 +50,7 @@ type General struct {
+ 	Mode              T.TunnelMode            `json:"mode"`
+ 	UnifiedDelay      bool                    `json:"unified-delay"`
+ 	LogLevel          log.LogLevel            `json:"log-level"`
++	Pprof             bool                    `json:"pprof"`
+ 	IPv6              bool                    `json:"ipv6"`
+ 	Interface         string                  `json:"interface-name"`
+ 	RoutingMark       int                     `json:"routing-mark"`
+@@ -415,6 +416,7 @@ type RawConfig struct {
+ 	Mode                          T.TunnelMode            `yaml:"mode" json:"mode"`
+ 	UnifiedDelay                  bool                    `yaml:"unified-delay" json:"unified-delay"`
+ 	LogLevel                      log.LogLevel            `yaml:"log-level" json:"log-level"`
++	Pprof                         bool                    `yaml:"pprof" json:"pprof"`
+ 	IPv6                          bool                    `yaml:"ipv6" json:"ipv6"`
+ 	ExternalController            string                  `yaml:"external-controller" json:"external-controller"`
+ 	ExternalControllerRoutingMark int                     `yaml:"external-controller-routing-mark" json:"external-controller-routing-mark"`
+@@ -776,6 +778,7 @@ func parseGeneral(cfg *RawConfig) (*General, error) {
+ 		UnifiedDelay: cfg.UnifiedDelay,
+ 		Mode:         cfg.Mode,
+ 		LogLevel:     cfg.LogLevel,
++		Pprof:        cfg.Pprof,
+ 		IPv6:         cfg.IPv6,
+ 		Interface:    cfg.Interface,
+ 		RoutingMark:  cfg.RoutingMark,
+diff --git a/hub/hub.go b/hub/hub.go
+index 29ddd2e6..1ff008f1 100644
+--- a/hub/hub.go
++++ b/hub/hub.go
+@@ -74,7 +74,7 @@ func applyRoute(cfg *config.Config) {
+ 		ClientAuthCert: cfg.TLS.ClientAuthCert,
+ 		EchKey:         cfg.TLS.EchKey,
+ 		DohServer:      cfg.Controller.ExternalDohServer,
+-		IsDebug:        cfg.General.LogLevel == log.DEBUG,
++		IsDebug:        cfg.General.LogLevel == log.DEBUG || cfg.General.Pprof,
+ 		Cors: route.Cors{
+ 			AllowOrigins:        cfg.Controller.Cors.AllowOrigins,
+ 			AllowPrivateNetwork: cfg.Controller.Cors.AllowPrivateNetwork,
+diff --git a/main.go b/main.go
+index 972caf8b..b6330bd1 100644
+--- a/main.go
++++ b/main.go
+@@ -78,6 +78,10 @@ func init() {
+ }
+ 
+ func main() {
++	// record block/mutex contention for pprof (debug/profiling builds)
++	runtime.SetBlockProfileRate(1)
++	runtime.SetMutexProfileFraction(1)
++
+ 	// Defensive programming: panic when code mistakenly calls net.DefaultResolver
+ 	net.DefaultResolver.PreferGo = true
+ 	net.DefaultResolver.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
+-- 
+2.55.0.windows.3
+

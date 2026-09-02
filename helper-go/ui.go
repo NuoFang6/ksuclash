@@ -40,7 +40,7 @@ func cmdPanel(args []string) error {
 // cmdResetUI 从模块安装目录恢复被破坏的面板（升级面板失败/文件损坏时使用）。
 func cmdResetUI(args []string) error {
 	syncUIFromModule()
-	if err := doPatch(); err != nil {
+	if _, _, err := doPatch(); err != nil {
 		return fmt.Errorf("面板配置重建失败: %w", err)
 	}
 	appendModuleLog("ui reset from module dir")
@@ -55,7 +55,7 @@ func cmdRepatchUI(args []string) error {
 	if _, err := os.Stat(index); err != nil {
 		// 数据目录面板整个没了 → 全量恢复
 		syncUIFromModule()
-		_ = doPatch()
+		_, _, _ = doPatch()
 		appendModuleLog("ui missing, full resync")
 		fmt.Println("ui resynced")
 		return nil
@@ -69,7 +69,7 @@ func cmdRepatchUI(args []string) error {
 	}
 	// 2. 面板配置（API 地址 + secret）补回，与 runtime 保持一致
 	if _, err := os.Stat(dataUIDir + "/panel-config.js"); err != nil {
-		_ = doPatch()
+		_, _, _ = doPatch()
 	}
 	// 3. index.html 注入点检查（已注入则跳过）
 	b, err := os.ReadFile(index)

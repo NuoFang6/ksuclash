@@ -1,0 +1,158 @@
+From 4a85e26cd091f13ee3a924b9a8cac067a17bd7bd Mon Sep 17 00:00:00 2001
+From: NuoFang6 <991921514@qq.com>
+Date: Tue, 1 Sep 2026 17:56:25 +0800
+Subject: [PATCH] fix: correct android amd64 core asset name in updater
+
+CoreBaseName() appended a GOAMD64 micro-architecture suffix (e.g. -v1) to
+the amd64 asset name for every platform. The release CI
+(.github/workflows/build.yml) only publishes a single android amd64 asset
+named "mihomo-android-amd64" without a GOAMD64 suffix, so on android/amd64
+the updater built "mihomo-android-amd64-v1-<ver>.gz", which does not exist
+and returned 404. The downloaded HTML/404 body was then written to the .gz
+file, causing "gzip.NewReader(): unexpected EOF" during unpack.
+
+Refactor the asset naming into a pure coreBaseName() function with an
+android-specific amd64 case (mirroring the existing arm64 case) and add
+table-driven unit tests covering the published asset names for android,
+linux, darwin and windows.
+---
+ component/updater/update_core.go      | 41 +++++++++++++++------
+ component/updater/update_core_test.go | 51 +++++++++++++++++++++++++--
+ 2 files changed, 79 insertions(+), 13 deletions(-)
+
+diff --git a/component/updater/update_core.go b/component/updater/update_core.go
+index 83a303af..ca3b78a1 100644
+--- a/component/updater/update_core.go
++++ b/component/updater/update_core.go
+@@ -49,34 +49,53 @@ type CoreUpdater struct {
+ 
+ var DefaultCoreUpdater = CoreUpdater{}
+ 
+-func (u *CoreUpdater) CoreBaseName() string {
+-	switch runtime.GOARCH {
++// coreBaseName returns the release asset base name (without version suffix)
++// for the given platform, e.g. "mihomo-android-amd64".
++//
++// Unlike linux/darwin/windows, which publish separate amd64 assets per
++// GOAMD64 (v1/v2/v3), android publishes a single amd64 asset without a
++// GOAMD64 suffix.
++func coreBaseName(goos, goarch, goamd64, goarm, gomips string) string {
++	switch goarch {
+ 	case "arm":
+-		// mihomo-linux-armv5
+-		return fmt.Sprintf("mihomo-%s-%sv%s", runtime.GOOS, runtime.GOARCH, features.GOARM)
++		// mihomo-linux-armv5, mihomo-linux-armv6, mihomo-linux-armv7
++		return fmt.Sprintf("mihomo-%s-%sv%s", goos, goarch, goarm)
+ 	case "arm64":
+-		if runtime.GOOS == "android" {
++		if goos == "android" {
+ 			// mihomo-android-arm64-v8
+-			return fmt.Sprintf("mihomo-%s-%s-v8", runtime.GOOS, runtime.GOARCH)
++			return fmt.Sprintf("mihomo-%s-%s-v8", goos, goarch)
+ 		} else {
+ 			// mihomo-linux-arm64
+-			return fmt.Sprintf("mihomo-%s-%s", runtime.GOOS, runtime.GOARCH)
++			return fmt.Sprintf("mihomo-%s-%s", goos, goarch)
+ 		}
+ 	case "mips", "mipsle":
+ 		// mihomo-linux-mips-hardfloat
+-		return fmt.Sprintf("mihomo-%s-%s-%s", runtime.GOOS, runtime.GOARCH, features.GOMIPS)
++		return fmt.Sprintf("mihomo-%s-%s-%s", goos, goarch, gomips)
+ 	case "amd64":
+-		// mihomo-linux-amd64-v1
+-		return fmt.Sprintf("mihomo-%s-%s-%s", runtime.GOOS, runtime.GOARCH, features.GOAMD64)
++		if goos == "android" {
++			// mihomo-android-amd64
++			// Unlike linux/darwin/windows, only a single amd64 asset is
++			// published for android, without a GOAMD64 micro-architecture
++			// suffix. Appending one (e.g. mihomo-android-amd64-v1) results in
++			// a 404 when downloading.
++			return fmt.Sprintf("mihomo-%s-%s", goos, goarch)
++		} else {
++			// mihomo-linux-amd64-v1
++			return fmt.Sprintf("mihomo-%s-%s-%s", goos, goarch, goamd64)
++		}
+ 	default:
+ 		// mihomo-linux-386
+ 		// mihomo-linux-mips64
+ 		// mihomo-linux-riscv64
+ 		// mihomo-linux-s390x
+-		return fmt.Sprintf("mihomo-%s-%s", runtime.GOOS, runtime.GOARCH)
++		return fmt.Sprintf("mihomo-%s-%s", goos, goarch)
+ 	}
+ }
+ 
++func (u *CoreUpdater) CoreBaseName() string {
++	return coreBaseName(runtime.GOOS, runtime.GOARCH, features.GOAMD64, features.GOARM, features.GOMIPS)
++}
++
+ func (u *CoreUpdater) Update(currentExePath string, channel string, force bool) (err error) {
+ 	u.mu.Lock()
+ 	defer u.mu.Unlock()
+diff --git a/component/updater/update_core_test.go b/component/updater/update_core_test.go
+index eb7c4a55..7115af5d 100644
+--- a/component/updater/update_core_test.go
++++ b/component/updater/update_core_test.go
+@@ -1,10 +1,57 @@
+ package updater
+ 
+ import (
+-	"fmt"
+ 	"testing"
+ )
+ 
++// TestCoreBaseName validates that the release asset base name matches the
++// naming used by the release CI (.github/workflows/build.yml). The CI builds
++// assets as "mihomo-<goos>-<output>-<version>.gz", where <output> for each
++// platform is:
++//
++//	android: amd64, arm64-v8, armv7, 386 (no GOAMD64/GOARM suffix except arm64)
++//	linux:   amd64[-v1|-v2|-v3], arm64, armv5/6/7, mips[-softfloat|hardfloat], 386, ...
++//	darwin:  amd64[-v1|-v2|-v3], arm64
++//	windows: amd64[-v1|-v2|-v3], arm64, 386
+ func TestCoreBaseName(t *testing.T) {
+-	fmt.Println("Core base name =", DefaultCoreUpdater.CoreBaseName())
++	tests := []struct {
++		name    string
++		goos    string
++		goarch  string
++		goamd64 string
++		goarm   string
++		gomips  string
++		want    string
++	}{
++		// android platforms
++		{"android amd64", "android", "amd64", "v1", "", "", "mihomo-android-amd64"},
++		{"android arm64", "android", "arm64", "", "", "", "mihomo-android-arm64-v8"},
++		{"android arm", "android", "arm", "", "7", "", "mihomo-android-armv7"},
++		{"android 386", "android", "386", "", "", "", "mihomo-android-386"},
++		// linux platforms
++		{"linux amd64 v1", "linux", "amd64", "v1", "", "", "mihomo-linux-amd64-v1"},
++		{"linux amd64 v2", "linux", "amd64", "v2", "", "", "mihomo-linux-amd64-v2"},
++		{"linux amd64 v3", "linux", "amd64", "v3", "", "", "mihomo-linux-amd64-v3"},
++		{"linux arm64", "linux", "arm64", "", "", "", "mihomo-linux-arm64"},
++		{"linux arm v5", "linux", "arm", "", "5", "", "mihomo-linux-armv5"},
++		{"linux arm v7", "linux", "arm", "", "7", "", "mihomo-linux-armv7"},
++		{"linux mips hardfloat", "linux", "mips", "", "", "hardfloat", "mihomo-linux-mips-hardfloat"},
++		{"linux mipsle softfloat", "linux", "mipsle", "", "", "softfloat", "mihomo-linux-mipsle-softfloat"},
++		{"linux 386", "linux", "386", "", "", "", "mihomo-linux-386"},
++		// darwin platforms
++		{"darwin amd64 v1", "darwin", "amd64", "v1", "", "", "mihomo-darwin-amd64-v1"},
++		{"darwin arm64", "darwin", "arm64", "", "", "", "mihomo-darwin-arm64"},
++		// windows platforms
++		{"windows amd64 v3", "windows", "amd64", "v3", "", "", "mihomo-windows-amd64-v3"},
++		{"windows arm64", "windows", "arm64", "", "", "", "mihomo-windows-arm64"},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			got := coreBaseName(tt.goos, tt.goarch, tt.goamd64, tt.goarm, tt.gomips)
++			if got != tt.want {
++				t.Errorf("coreBaseName(%s, %s, ...) = %q, want %q", tt.goos, tt.goarch, got, tt.want)
++			}
++		})
++	}
+ }
+-- 
+2.55.0.windows.3
+
