@@ -101,6 +101,7 @@ rm "$TOOLS_DIR/$zashboard_file"
 echo "$zashboard_ver" > "$VERSION_MARKER"
 
 echo "修补 zashboard..."
-node tools/patch-ui.mjs
+# dist-no-fonts.zip 解压后资源在 $ZASHBOARD_DIR/dist 子目录内，显式传入
+node tools/patch-ui.mjs "$ZASHBOARD_DIR/dist"
 
 echo "✅ zashboard 面板下载完毕"

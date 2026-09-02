@@ -8,13 +8,13 @@
  * zashboard 官方「升级面板」覆盖目录后注入依然生效。
  *
  * 用法: node tools/patch-ui.mjs [zashboard-dist] [module-root]
- *   [zashboard-dist]  默认 tmp/zashboard（get-zashboard.sh 的下载解压目录）
+ *   [zashboard-dist]  默认 tmp/zashboard/dist（get-zashboard.sh 解压后的资源目录）
  *   [module-root]     默认 module/
  */
 import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
-const dist = process.argv[2] || 'tmp/zashboard'
+const dist = process.argv[2] || 'tmp/zashboard/dist'
 const modRoot = process.argv[3] || 'module'
 const uiDir = join(modRoot, 'ui')
 
