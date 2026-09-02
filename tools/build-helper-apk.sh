@@ -110,7 +110,7 @@ find_or_download() {
     found=$(find "$KOTLIN_LIB_DIR" -name "${artifact}*.jar" 2>/dev/null | head -n 1)
     
     if [ -n "$found" ]; then
-        echo "✅ 使用 kotlinc 自带: $(basename "$found")"
+        echo "✅ 使用 kotlinc 自带: $(basename "$found")" >&2
         echo "$found"
         return 0
     fi
@@ -118,14 +118,14 @@ find_or_download() {
     # 2. 在 libs 目录中查找本地缓存
     local dest="$LIBS_DIR/$filename"
     if [ -f "$dest" ]; then
-        echo "✅ 使用本地缓存: $filename"
+        echo "✅ 使用本地缓存: $filename" >&2
         echo "$dest"
         return 0
     fi
     
     # 3. 从 Maven Central 下载
     local url="$MAVEN_REPO/${COR_GROUP//.//}/$artifact/$version/$filename"
-    echo "⬇️ 正在下载: $filename"
+    echo "⬇️ 正在下载: $filename" >&2
     curl -fSL "$url" -o "$dest"
     echo "$dest"
 }
@@ -165,7 +165,8 @@ fi
 # 3. 构建目录准备
 # ==============================
 BUILD_DIR="$APK_DIR/build"
-OUTPUT_DIR="$BUILD_DIR"
+# 最终 APK 与 mihomo / suclash_helper 统一输出到仓库根 build/，供 package-module.sh 打包
+OUTPUT_DIR="$ROOT/build"
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"/{gen,obj,kclasses,dex}
