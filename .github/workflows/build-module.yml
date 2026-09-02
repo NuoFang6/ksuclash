@@ -47,5 +47,6 @@ jobs:
       - name: 上传模块至 artifacts
         uses: actions/upload-artifact@v4
         with:
+          name: suclash-module-${{ matrix.goarch }}
           if-no-files-found: error
           path: build/module.zip
