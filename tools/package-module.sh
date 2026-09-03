@@ -17,6 +17,10 @@ TARGET_ARCH="${GOARCH:-amd64}"
 rm -rf build/module
 cp -r module build/module
 
+# webroot-src 是面板源码（构建期已由 build-mihomo.sh 拷贝进 mihomo 并 go:embed），
+# 运行时由 mihomo 服务端注入，不随模块分发，避免在刷机包中携带重复死文件。
+rm -rf build/module/webroot-src
+
 # module/bin 仅放本次构建产物（.gitkeep 不入包）
 rm -f build/module/bin/.gitkeep
 cp build/suclash_helper build/module/bin/
