@@ -29,9 +29,12 @@ fi
 echo "🔨 编译 mihomo..."
 cd "$ROOT/mihomo"
 
-# 悬浮面板脚本供 hub/route 的 go:embed 使用（mihomo-patches/0005）。
-# panel.js 不入补丁，始终以本仓库最新版为准。
+# 面板相关脚本供 hub/route 的 go:embed 使用（mihomo-patches/0005、0006）。
+# 不入补丁，始终以本仓库最新版为准。
+#   panel.js          悬浮面板 UI
+#   storage_bridge.js 面板设置的模块级存储桥接（注入到 <head> 之后）
 cp "$ROOT/module/webroot-src/panel.js" hub/route/panel.js
+cp "$ROOT/module/webroot-src/storage-bridge.js" hub/route/storage_bridge.js
 
 go build \
     -tags "with_gvisor" \

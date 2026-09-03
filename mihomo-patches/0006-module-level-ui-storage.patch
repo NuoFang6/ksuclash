@@ -1,0 +1,255 @@
+diff --git a/hub/route/server.go b/hub/route/server.go
+index abd688bb..127dace3 100644
+--- a/hub/route/server.go
++++ b/hub/route/server.go
+@@ -139,6 +139,7 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
+ 			r.Mount("/restart", restartRouter())
+ 		}
+ 		r.Mount("/upgrade", upgradeRouter())
++		r.Mount("/suclash/ui-storage", uiStorageRouter()) // 面板设置的模块级存储
+ 		addExternalRouters(r)
+ 
+ 	})
+diff --git a/hub/route/ui_panel.go b/hub/route/ui_panel.go
+index 91da0cd1..0dd23a61 100644
+--- a/hub/route/ui_panel.go
++++ b/hub/route/ui_panel.go
+@@ -15,7 +15,8 @@ import (
+ // SU Clash 悬浮面板：服务端运行时注入，不修改 external-ui 目录中的任何文件。
+ //   - GET /ui/panel.js      → 返回面板脚本（内嵌于二进制；磁盘同名文件优先，便于调试。
+ //                             官方「升级面板」POST /upgrade/ui 清空目录后依然可用）
+-//   - GET /ui/* text/html   → 在 </body> 前注入 window.__SUCLASH__ 配置与 panel.js 引用
++//   - GET /ui/* text/html   → 在 <head> 之后注入模块级存储桥接，在 </body> 前注入
++//                             window.__SUCLASH__ 配置与 panel.js 引用
+ //
+ // 面板 API 的 host/port/protocol 由页面 location 推导（与访问入口同源，天然适配
+ // 127.0.0.1 / 局域网 IP / WebUI 代理等入口），仅 secret 由服务端注入。
+@@ -24,6 +25,9 @@ import (
+ //go:embed panel.js
+ var panelJS []byte
+ 
++//go:embed storage_bridge.js
++var storageBridgeJS []byte
++
+ // injectUIPanel 包装 /ui/* 的静态文件服务，注入悬浮面板。
+ func injectUIPanel(secret string, next http.Handler) http.Handler {
+ 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+@@ -49,25 +53,92 @@ func injectUIPanel(secret string, next http.Handler) http.Handler {
+ 	})
+ }
+ 
+-// writePanelHTML 将缓冲的 HTML 响应注入面板后回写。
++// writePanelHTML 将缓冲的 HTML 响应注入模块级存储桥接与悬浮面板后回写。
+ func writePanelHTML(w http.ResponseWriter, bw *htmlBuffer, secret string) {
+ 	body := bw.buf.Bytes()
++	// 存储桥接必须早于任何面板脚本求值（面板在模块初始化阶段就同步读 localStorage）
++	body = injectHead(body, buildStorageBridge(secret))
++	body = injectPanel(body, secret)
++	h := w.Header()
++	h.Set("Content-Length", strconv.Itoa(len(body)))
++	w.WriteHeader(bw.status)
++	_, _ = w.Write(body)
++}
++
++// injectPanel 在 </body> 前注入面板配置与脚本。
++func injectPanel(body []byte, secret string) []byte {
+ 	secretJSON, _ := json.Marshal(secret) // 带引号的 JSON 字符串字面量，转义完备
+ 	inject := []byte("<script>window.__SUCLASH__={api:{protocol:location.protocol.replace(':','')," +
+ 		"host:location.hostname,port:location.port||(location.protocol==='https:'?'443':'80')," +
+ 		"secret:" + string(secretJSON) + "}};</script>" +
+ 		"<script src=\"./panel.js\"></script>")
+-	if i := bytes.LastIndex(body, []byte("</body>")); i >= 0 {
+-		out := make([]byte, 0, len(body)+len(inject))
+-		out = append(out, body[:i]...)
+-		out = append(out, inject...)
+-		out = append(out, body[i:]...)
+-		body = out
++	return insertBefore(body, []byte("</body>"), inject)
++}
++
++// buildStorageBridge 生成「模块级面板设置」桥接脚本；external-ui 未配置时返回 nil（不注入）。
++// 快照内联进页面，页面无需额外请求即可同步读取。
++func buildStorageBridge(secret string) []byte {
++	if uiStorageFile() == "" {
++		return nil
+ 	}
+-	h := w.Header()
+-	h.Set("Content-Length", strconv.Itoa(len(body)))
+-	w.WriteHeader(bw.status)
+-	_, _ = w.Write(body)
++	data, fresh := readUIStorage()
++	// json.Marshal 默认转义 < > &，可安全内联进 <script>，不会被面板设置内容截断
++	snap, err := json.Marshal(data)
++	if err != nil || len(snap) == 0 {
++		snap = []byte("{}")
++	}
++	secretJSON, _ := json.Marshal(secret)
++	cfg := []byte("<script>window.__SUCLASH_STORE__={url:\"/suclash/ui-storage\"," +
++		"secret:" + string(secretJSON) +
++		",fresh:" + strconv.FormatBool(fresh) +
++		",data:" + string(snap) + "};</script>")
++	out := make([]byte, 0, len(cfg)+len(storageBridgeJS)+len("<script></script>"))
++	out = append(out, cfg...)
++	out = append(out, "<script>"...)
++	out = append(out, storageBridgeJS...)
++	out = append(out, "</script>"...)
++	return out
++}
++
++// injectHead 把内容插到 <head ...> 之后；无 head 时退化为 <html ...> 之后，
++// 再退化则插到文档最前面（浏览器解析时会自行补齐结构，脚本依然最先执行）。
++func injectHead(body, inject []byte) []byte {
++	if len(inject) == 0 {
++		return body
++	}
++	lower := bytes.ToLower(body)
++	at := -1
++	for _, tag := range []string{"<head", "<html"} {
++		i := bytes.Index(lower, []byte(tag))
++		if i < 0 {
++			continue
++		}
++		if j := bytes.IndexByte(lower[i:], '>'); j >= 0 {
++			at = i + j + 1
++			break
++		}
++	}
++	if at < 0 {
++		return append(append(make([]byte, 0, len(inject)+len(body)), inject...), body...)
++	}
++	out := make([]byte, 0, len(body)+len(inject))
++	out = append(out, body[:at]...)
++	out = append(out, inject...)
++	out = append(out, body[at:]...)
++	return out
++}
++
++// insertBefore 在最后一个 mark 之前插入 inject；找不到 mark 则追加到末尾。
++func insertBefore(body, mark, inject []byte) []byte {
++	i := bytes.LastIndex(body, mark)
++	if i < 0 {
++		return append(body, inject...)
++	}
++	out := make([]byte, 0, len(body)+len(inject))
++	out = append(out, body[:i]...)
++	out = append(out, inject...)
++	out = append(out, body[i:]...)
++	return out
+ }
+ 
+ // htmlBuffer 仅缓冲 text/html 响应体；其余类型（静态资源、304 等）直通转发。
+diff --git a/hub/route/ui_storage.go b/hub/route/ui_storage.go
+new file mode 100644
+index 00000000..f0d3143e
+--- /dev/null
++++ b/hub/route/ui_storage.go
+@@ -0,0 +1,109 @@
++package route
++
++import (
++	"encoding/json"
++	"errors"
++	"os"
++	"path/filepath"
++	"sync"
++
++	"github.com/metacubex/chi"
++	"github.com/metacubex/chi/render"
++	"github.com/metacubex/http"
++)
++
++// SU Clash 模块级面板设置：把 external-ui（zashboard）的 localStorage 落到模块数据目录，
++// 使 SU Clash App / 浏览器 / WebUI 等所有入口共用同一份设置，清除或重装 App 都不会丢失。
++//
++// 存储文件与 external-ui 目录同级（线上为 /data/adb/suclash/ui-storage.json）：
++// 刻意不放进 ui 目录本身，避免官方「升级面板」POST /upgrade/ui 清空目录时被一并删除。
++//
++// 读写两端（均需鉴权，与 /ui 之外的其它 API 一致）：
++//   - GET /suclash/ui-storage  面板页面加载时由服务端内联快照（见 injectStorageBridge）
++//   - PUT /suclash/ui-storage  面板改动后由注入脚本 debounce 回写
++//
++// 之所以由服务端内联快照而不是页面自己 GET：localStorage 是同步 API，
++// 面板脚本在求值阶段就会同步读取，异步拉取会让设置全部读空。
++
++const uiStorageMaxBytes = 8 << 20 // 8MB，远超面板设置规模，仅防异常写入
++
++var uiStorageMu sync.Mutex
++
++// uiStorageFile 返回存储文件路径；external-ui 未配置时返回空串（功能自动关闭）。
++func uiStorageFile() string {
++	if uiPath == "" {
++		return ""
++	}
++	return filepath.Join(filepath.Dir(uiPath), "ui-storage.json")
++}
++
++// readUIStorage 返回存储内容与「是否首次启用」（文件尚不存在）。
++// 首次启用时页面会把当前环境的原生 localStorage 迁移上来，避免老用户升级后丢设置。
++func readUIStorage() (map[string]string, bool) {
++	p := uiStorageFile()
++	if p == "" {
++		return map[string]string{}, false
++	}
++	b, err := os.ReadFile(p)
++	if err != nil {
++		return map[string]string{}, os.IsNotExist(err)
++	}
++	m := map[string]string{}
++	if err := json.Unmarshal(b, &m); err != nil || m == nil {
++		return map[string]string{}, false
++	}
++	return m, false
++}
++
++// writeUIStorage 原子写回（临时文件 + rename），避免写一半时进程被杀导致设置全丢。
++func writeUIStorage(m map[string]string) error {
++	p := uiStorageFile()
++	if p == "" {
++		return errors.New("external-ui is not configured")
++	}
++	b, err := json.MarshalIndent(m, "", "  ")
++	if err != nil {
++		return err
++	}
++	uiStorageMu.Lock()
++	defer uiStorageMu.Unlock()
++	tmp := p + ".tmp"
++	if err := os.WriteFile(tmp, b, 0o600); err != nil {
++		return err
++	}
++	if err := os.Rename(tmp, p); err != nil {
++		_ = os.Remove(tmp)
++		return err
++	}
++	return nil
++}
++
++func getUIStorage(w http.ResponseWriter, r *http.Request) {
++	m, fresh := readUIStorage()
++	render.JSON(w, r, render.M{"data": m, "fresh": fresh})
++}
++
++func putUIStorage(w http.ResponseWriter, r *http.Request) {
++	var m map[string]string
++	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, uiStorageMaxBytes)).Decode(&m); err != nil {
++		render.Status(r, http.StatusBadRequest)
++		render.JSON(w, r, newError(err.Error()))
++		return
++	}
++	if m == nil {
++		m = map[string]string{}
++	}
++	if err := writeUIStorage(m); err != nil {
++		render.Status(r, http.StatusInternalServerError)
++		render.JSON(w, r, newError(err.Error()))
++		return
++	}
++	render.NoContent(w, r)
++}
++
++func uiStorageRouter() http.Handler {
++	r := chi.NewRouter()
++	r.Get("/", getUIStorage)
++	r.Put("/", putUIStorage)
++	return r
++}

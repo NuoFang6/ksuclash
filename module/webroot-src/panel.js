@@ -206,7 +206,8 @@
     var ctl = card.querySelector('#suc-ctl')
     var dot = st === 'on' ? 'on' : (st === 'panic' ? 'panic' : '')
     var label = { on: '核心运行中', off: '核心未运行', starting: '启动中…', stopping: '停止中…', panic: '已熔断（反复异常）', unknown: '状态未知' }[st] || st
-    stEl.innerHTML = '<span class="suc-dot ' + dot + '"></span>' + label
+    stEl.innerHTML = '<span class="suc-dot ' + dot + '"></span>' + label +
+      '<div style="opacity:.45;font-size:10px;margin-top:3px">[diag] ksu=' + typeof window.ksu + ' exec=' + (window.ksu ? typeof window.ksu.exec : 'n/a') + ' hasRoot=' + hasRoot + '</div>'
     if (!hasRoot) {
       ctl.innerHTML = '<div class="suc-hint">当前环境无 root 桥，仅显示状态。核心管理请使用 SU Clash App。</div>'
       return
