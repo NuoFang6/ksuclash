@@ -78,11 +78,11 @@ fi
 [ -f "$DATA_DIR/state/enabled" ] || echo 1 > "$DATA_DIR/state/enabled"
 
 # 辅助 App（快捷磁贴 + 通知操作）：不在安装期 pm install。
-# 此刻旧模块仍在运行（更新要到重启才生效），现在装新 App 会与运行中的旧磁贴/通知脱节；
-# 改为记录新 APK 指纹，重启后由 service.sh 比对指纹并安装/更新。
+# 更新只写入 modules_update/，重启后由 service.sh 安装；指纹必须由
+# service.sh 在安装成功后写入，不能在这里提前写入，否则新 APK 会被跳过。
 if [ -f "$MODPATH/bin/MihomoControl.apk" ]; then
-    md5sum "$MODPATH/bin/MihomoControl.apk" 2>/dev/null | awk '{print $1}' \
-        > "$DATA_DIR/state/apk.md5"
+    # 清除旧状态，兼容此前安装流程已错误写入新 APK 指纹的设备。
+    rm -f "$DATA_DIR/state/apk.md5"
     ui_print "- 控制 App 将在重启后自动安装/更新"
 fi
 
