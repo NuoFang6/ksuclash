@@ -92,9 +92,11 @@ mkdir -p "$LIBS_DIR"
 
 KOTLIN_LIB_DIR="$TOOLS_DIR/kotlinc/lib"
 
-# 查找 kotlinc 自带的 stdlib
-KOTLIN_STDLIB=$(find "$KOTLIN_LIB_DIR" -name "kotlin-stdlib*.jar" 2>/dev/null | head -n 1)
-if [ -z "$KOTLIN_STDLIB" ]; then
+# 查找 kotlinc 自带的 stdlib：必须是含 .class 的主 jar。
+# 不能用 find|head 模糊匹配，否则可能误选到 -sources/-jdk7/-jdk8 等薄 jar，
+# 导致 R8 报 "Missing class kotlin.text.*" 并回退 d8。
+KOTLIN_STDLIB="$KOTLIN_LIB_DIR/kotlin-stdlib.jar"
+if [ ! -f "$KOTLIN_STDLIB" ]; then
     echo "❌ 未找到 kotlin-stdlib.jar，请检查 kotlinc 安装。"
     exit 1
 fi
@@ -213,8 +215,14 @@ jar -cf build/kclasses.jar -C build/kclasses .
 # ==============================
 echo ">> R8 (裁剪与混淆)"
 cat > build/r8.pro <<'EOF'
+# 保留运行时反射所需的注解（addJavascriptInterface 依赖 @JavascriptInterface 反射查找方法）
+-keepattributes *Annotation*
 # Manifest 组件与 WebView JS 桥需反射可达
 -keep class io.github.suclash.control.** { *; }
+# 显式 keep 所有 @JavascriptInterface 注解方法（防 R8 剥离注解导致桥方法不暴露给 JS）
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
 -dontwarn kotlinx.coroutines.**
 -dontwarn java.lang.invoke.**
 -dontwarn org.jetbrains.annotations.**
@@ -261,10 +269,14 @@ if [ ! -f "$KS" ]; then
     exit 1
 fi
 
+# apksigner 是 JVM 启动器 shell 脚本，不读取 JAVA_OPTS；这里用 JDK_JAVA_OPTIONS 注入，
+# 消除 JDK 24+ 下 conscrypt 的 "restricted method ... loadLibrary" 警告。
+export JDK_JAVA_OPTIONS="$JAVA_OPTS"
 apksigner sign --ks "$KS" --ks-key-alias "$KS_ALIAS" \
     --ks-pass "pass:$KS_PASS" --key-pass "pass:$KS_PASS" \
     --out "$KS_OUT" build/aligned.apk
 
 apksigner verify --print-certs "$KS_OUT" | head -3
+unset JDK_JAVA_OPTIONS
 
 echo "🎉 构建完成: $KS_OUT"

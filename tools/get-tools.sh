@@ -154,15 +154,14 @@ echo "✅ Platform 配置完毕: $LATEST_STABLE"
 # ==============================
 echo "📦 [3/5] 正在处理 Kotlin 编译器..."
 
+# 固定 Kotlin 版本：Android build-tools 内置的 R8 最高只支持 Kotlin metadata 2.3.0，
+# 若用最新的 2.4.x（metadata 2.4.0）会触发 R8 解析 Kotlin metadata 失败并回退 d8。
+# 故固定到 2.3.x 最新版，保证 R8 正常裁剪混淆。
+KOTLIN_VERSION="2.3.21"
 if [ ! -d "kotlinc" ]; then
-    echo "⬇️ 未检测到缓存，正在通过 GitHub API 获取最新 Kotlin 编译器..."
-    # CI 中带 token 认证，避免未认证 60 次/小时限流
-    KOTLIN_AUTH=()
-    if is_ci && [ -n "$GITHUB_TOKEN" ]; then
-        KOTLIN_AUTH+=(-H "Authorization: token $GITHUB_TOKEN")
-    fi
-    KOTLIN_URL=$(curl -s "${KOTLIN_AUTH[@]}" https://api.github.com/repos/JetBrains/kotlin/releases/latest | grep -o 'https://github.com/JetBrains/kotlin/releases/download/[^"]*kotlin-compiler-[^"]*\.zip' | head -n 1)
-    
+    echo "⬇️ 未检测到缓存，正在下载 Kotlin 编译器 $KOTLIN_VERSION..."
+    KOTLIN_URL="https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip"
+
     curl -fSL "$KOTLIN_URL" -o kotlin.zip
     unzip -q kotlin.zip
     rm kotlin.zip

@@ -32,6 +32,9 @@ jobs:
             ndk: x86_64-linux-android34
 
     steps:
+      - name: 配置 git 默认分支（抑制 checkout 的 init 分支名提示）
+        run: git config --global init.defaultBranch main
+
       - name: 检出代码
         uses: actions/checkout@v7
 
@@ -64,7 +67,7 @@ jobs:
       #     wait-timeout-minutes: 20
       
       - name: 上传模块至 artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: suclash-module-${{ matrix.goarch }}
           if-no-files-found: error

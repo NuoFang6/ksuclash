@@ -91,10 +91,33 @@
     })
   }
 
+  // ---------- HTTP 状态探测（无 root 桥时的降级方案） ----------
+  // window.__SUCLASH__.api 的 host/port 取自 location，天然指向当前面板可达地址；
+  // 只要 mihomo 对外端口有 HTTP 响应（200/401/404 均算在线），即视为核心运行中。
+  function httpProbe() {
+    var base = (A.protocol || 'http') + '://' + (A.host || '127.0.0.1') + ':' + (A.port || '9090')
+    return new Promise(function (resolve) {
+      try {
+        var xhr = new XMLHttpRequest()
+        xhr.open('GET', base + '/version', true)
+        xhr.timeout = 4000
+        if (A.secret) { try { xhr.setRequestHeader('Authorization', 'Bearer ' + A.secret) } catch (e) {} }
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState !== 4) return
+          resolve(xhr.status > 0 ? 'on' : 'off')
+        }
+        xhr.send()
+      } catch (e) { resolve('off') }
+    })
+  }
+
   function getState() {
+    if (!hasRoot) return httpProbe()
     return rootExec(CTL + ' status').then(function (out) {
       var m = (out || '').match(/state=(\w+)/)
-      return m ? m[1] : (hasRoot ? 'off' : 'unknown')
+      return m ? m[1] : 'off'
+    }).catch(function () {
+      return httpProbe()
     })
   }
   function waitRunning(sec) {
@@ -168,9 +191,12 @@
   function loadLog() {
     var el = card.querySelector('#suc-log')
     if (!el || el.style.display === 'none') return
+    if (!hasRoot) { el.textContent = '（无 root 桥，无法读取日志）'; return }
     rootExec('tail -n 40 /data/adb/suclash/module.log 2>/dev/null').then(function (out) {
       el.textContent = (out && out.trim()) ? out.trim() : '（暂无日志）'
       el.scrollTop = el.scrollHeight
+    }).catch(function () {
+      el.textContent = '（读取日志失败）'
     })
   }
 
@@ -216,12 +242,36 @@
     getState().then(function (st) {
       if (st === 'off') renderStopped()
       else renderRunning(st)
+    }).catch(function () {
+      renderRunning('unknown')
     })
   }
 
+  // 轻量提示：无 root 桥时点击核心操作按钮给出可见反馈，而非静默无响应
+  function toast(msg) {
+    try {
+      var t = document.createElement('div')
+      t.textContent = msg
+      t.style.cssText = 'position:fixed;left:50%;bottom:22%;transform:translateX(-50%);' +
+        'z-index:2147483647;background:rgba(0,0,0,.82);color:#fff;padding:9px 16px;' +
+        'border-radius:10px;font-size:13px;max-width:82vw;text-align:center;'
+      document.body.appendChild(t)
+      setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t) }, 2200)
+    } catch (e) {}
+  }
+
+  // 静态按钮（模块日志/刷新日志/配置）依赖 root 桥，无桥时置灰禁用
+  function syncRootButtons() {
+    var btns = card.querySelectorAll('.suc-btn[data-a="mlog"],.suc-btn[data-a="logrefresh"],.suc-btn[data-a="config"]')
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].disabled = !hasRoot
+      btns[i].style.opacity = hasRoot ? '' : '.45'
+    }
+  }
+
   function act(a) {
-    if (!hasRoot) return
     if (a === 'close') { ov.classList.remove('show'); return }
+    if (!hasRoot) { toast('当前环境无 root 桥，请使用 SU Clash App 操作'); return }
     if (a === 'mlog') {
       var el = card.querySelector('#suc-log')
       el.style.display = el.style.display === 'block' ? 'none' : 'block'
@@ -253,6 +303,7 @@
   bubble.addEventListener('click', function (e) {
     if (dragged) return
     if (!card.innerHTML) card.innerHTML = html()
+    syncRootButtons()
     ov.classList.add('show')
     refresh()
     setTimeout(loadLog, 500)
