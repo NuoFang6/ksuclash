@@ -41,7 +41,7 @@ const (
 
 	startWaitSec   = 15 // 等待 API 就绪上限
 	termWaitSec    = 5  // SIGTERM 后等待退出上限
-	wdIntervalSec  = 10 // 看门狗轮询周期
+	wdIntervalSec  = 30 // 看门狗健康探测周期，降低常驻唤醒和 HTTP 开销
 	maxCrash       = 3  // 熔断阈值
 	crashWindowSec = 600 // 崩溃统计窗口
 )
