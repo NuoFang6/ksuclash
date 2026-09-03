@@ -15,11 +15,16 @@ BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 # LDFLAGS：体积优化 + 版本注入
 LDFLAGS="
     -s -w
-    -extldflags --static
     -X github.com/metacubex/mihomo/constant.Version=$VERSION
     -X github.com/metacubex/mihomo/constant.BuildTime=$BUILD_TIME
     -X github.com/metacubex/mihomo/constant.GitCommit=$COMMIT
 "
+
+# 纯 Go 内部链接（android/arm64 等）加 --static 消除 glibc 动态依赖；
+# cgo（android/amd64 需 NDK 外部链接）下 --static 会导致 bionic 链接失败，须去掉。
+if [ "${CGO_ENABLED:-0}" != "1" ]; then
+    LDFLAGS="$LDFLAGS -extldflags --static"
+fi
 
 echo "🔨 编译 mihomo..."
 cd "$ROOT/mihomo"
@@ -28,7 +33,7 @@ cd "$ROOT/mihomo"
 # panel.js 不入补丁，始终以本仓库最新版为准。
 cp "$ROOT/module/webroot-src/panel.js" hub/route/panel.js
 
-CGO_ENABLED=0 go build \
+go build \
     -tags "with_gvisor" \
     -trimpath \
     -buildvcs=false \

@@ -9,7 +9,7 @@ mkdir -p "$OUTPUT_DIR"
 echo "🔨 开始编译 helper-go ($GOOS/$GOARCH)"
 cd "$ROOT/helper-go"
 
-CGO_ENABLED=0 go build \
+go build \
     -trimpath \
     -ldflags="-s -w" \
     -o "$OUTPUT_DIR/suclash_helper" .

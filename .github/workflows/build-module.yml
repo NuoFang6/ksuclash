@@ -20,10 +20,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 手机真实架构 aarch64（Go 内部链接器不支持 android/amd64，
-          # amd64 仅用于 x86_64 模拟器且需 NDK+cgo，故 CI 只出 arm64 包）
+          # 手机真实架构 aarch64（纯 Go 内部链接器）
           - goos: android
             goarch: arm64
+            cgo: "0"
+            ndk: ""
+          # x86_64 模拟器（Go 内部链接器不支持 android/amd64，需 NDK+cgo 外部链接）
+          - goos: android
+            goarch: amd64
+            cgo: "1"
+            ndk: x86_64-linux-android34
 
     steps:
       - name: 检出代码
@@ -33,6 +39,19 @@ jobs:
         run: |
           echo "GOOS=${{ matrix.goos }}" >> $GITHUB_ENV
           echo "GOARCH=${{ matrix.goarch }}" >> $GITHUB_ENV
+          echo "CGO_ENABLED=${{ matrix.cgo }}" >> $GITHUB_ENV
+
+      - name: 设置 Android NDK (cgo 矩阵)
+        if: ${{ matrix.cgo == '1' }}
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r29-beta1
+
+      - name: 注入 NDK 交叉编译工具链 (cgo 矩阵)
+        if: ${{ matrix.cgo == '1' }}
+        run: |
+          echo "CC=${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.ndk }}-clang" >> $GITHUB_ENV
 
       - name: CI
         run: |

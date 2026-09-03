@@ -6,7 +6,7 @@
 # APK（Root.SCRIPT）、通知按钮、磁贴、panel.js 的 ksu.exec 均以
 # "sh /data/adb/modules/suclash/scripts/clashctl <cmd>" 形式调用，调用方零改动。
 #
-# 子命令与输出格式由 suclash_helper 保持兼容（status 的 state=/pid=/tun= 等被 APK 解析）。
+# 子命令与输出格式由 suclash_helper 保持兼容（status 的 state=/pid=/mode= 等被 APK 解析）。
 
 MODDIR="/data/adb/modules/suclash"
 HELPER="$MODDIR/bin/suclash_helper"
