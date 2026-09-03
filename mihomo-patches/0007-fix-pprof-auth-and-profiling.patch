@@ -1,0 +1,27 @@
+diff --git a/hub/hub.go b/hub/hub.go
+--- a/hub/hub.go
++++ b/hub/hub.go
+@@ -1,8 +1,10 @@
+ package hub
+ 
+ import (
++	"runtime"
++
+ 	"github.com/metacubex/mihomo/config"
+ 	"github.com/metacubex/mihomo/hub/executor"
+ 	"github.com/metacubex/mihomo/hub/route"
+ 	"github.com/metacubex/mihomo/log"
+ )
+@@ -55,4 +57,11 @@ func ApplyConfig(cfg *config.Config) {
+ func ApplyConfig(cfg *config.Config) {
++	if cfg.General.Pprof {
++		runtime.SetBlockProfileRate(1)
++		runtime.SetMutexProfileFraction(1)
++	} else {
++		runtime.SetBlockProfileRate(0)
++		runtime.SetMutexProfileFraction(0)
++	}
+ 	applyRoute(cfg)
+ 	executor.ApplyConfig(cfg, true)
+ }
+

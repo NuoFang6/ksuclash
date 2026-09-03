@@ -60,7 +60,7 @@ func watchdogPID() int {
 	if !ok {
 		return -1
 	}
-	if !procAlive(pid) {
+	if !procAlive(pid) || !procIsWatchdog(pid) {
 		return -1
 	}
 	return pid

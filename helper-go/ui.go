@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -12,11 +13,32 @@ import (
 
 // syncUIFromModule 将模块内置 zashboard 同步到数据目录（external-ui 要求 home 子路径）。
 func syncUIFromModule() {
-	_ = os.RemoveAll(dataUIDir)
-	if err := os.CopyFS(dataUIDir, os.DirFS(modUIDir)); err != nil {
+	tmpDir := fmt.Sprintf("%s.tmp-%d", dataUIDir, os.Getpid())
+	_ = os.RemoveAll(tmpDir)
+	if err := os.CopyFS(tmpDir, os.DirFS(modUIDir)); err != nil {
+		_ = os.RemoveAll(tmpDir)
 		appendModuleLog("ui sync from module failed: %v", err)
 		return
 	}
+	if _, err := os.Stat(filepath.Join(tmpDir, "index.html")); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		appendModuleLog("ui sync from module failed: index.html missing")
+		return
+	}
+	oldDir := fmt.Sprintf("%s.old-%d", dataUIDir, os.Getpid())
+	_ = os.RemoveAll(oldDir)
+	if err := os.Rename(dataUIDir, oldDir); err != nil && !os.IsNotExist(err) {
+		_ = os.RemoveAll(tmpDir)
+		appendModuleLog("ui sync from module failed: cannot move old ui: %v", err)
+		return
+	}
+	if err := os.Rename(tmpDir, dataUIDir); err != nil {
+		_ = os.Rename(oldDir, dataUIDir)
+		_ = os.RemoveAll(tmpDir)
+		appendModuleLog("ui sync from module failed: cannot activate new ui: %v", err)
+		return
+	}
+	_ = os.RemoveAll(oldDir)
 }
 
 // panelURL 生成 zashboard 面板地址（按 runtime external-controller 推导）。

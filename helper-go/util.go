@@ -81,6 +81,15 @@ func procIsMihomo(pid int) bool {
 	return len(b) > 0 && (containsBytes(b, []byte("mihomo")) || containsBytes(b, []byte(runtimeCfg)))
 }
 
+// procIsWatchdog 校验 PID 对应的是本模块的 watchdog，防止 PID 复用误杀其他进程。
+func procIsWatchdog(pid int) bool {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return false
+	}
+	return containsBytes(b, []byte(helperBin)) && containsBytes(b, []byte("watchdog"))
+}
+
 func containsBytes(hay, needle []byte) bool {
 	if len(needle) == 0 || len(hay) < len(needle) {
 		return false

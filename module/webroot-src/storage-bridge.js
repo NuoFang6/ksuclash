@@ -59,11 +59,13 @@
 
   var AUTH = CFG.secret ? 'Bearer ' + CFG.secret : ''
   var dirty = false
+  var changeGeneration = 0
   var timer = null
   var fails = 0
 
   function markDirty() {
     dirty = true
+    changeGeneration++
     if (timer) clearTimeout(timer)
     timer = setTimeout(function () { timer = null; flush(false) }, 400)
   }
@@ -110,6 +112,7 @@
   // 跳过本次会话刚写过的键的校准窗口很短，简单起见直接以远端为准覆盖未改动项。
   try {
     var rx = new XMLHttpRequest()
+    var requestGeneration = changeGeneration
     rx.open('GET', CFG.url, true)
     if (AUTH) rx.setRequestHeader('Authorization', AUTH)
     rx.onload = function () {
@@ -119,7 +122,7 @@
       var d = obj && obj.data
       if (!d) return
       for (var k2 in d) {
-        if (has(d, k2) && !isLocal(k2) && !dirty && DATA[k2] !== String(d[k2])) {
+        if (has(d, k2) && !isLocal(k2) && !dirty && changeGeneration === requestGeneration && DATA[k2] !== String(d[k2])) {
           DATA[k2] = String(d[k2])
         }
       }

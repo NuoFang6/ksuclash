@@ -75,8 +75,12 @@ mkdir -p "$ZASHBOARD_DIR"
 # 缓存检测：如果版本未变，直接跳过下载和解压
 VERSION_MARKER="$ZASHBOARD_DIR/.version"
 if [ -f "$VERSION_MARKER" ] && [ "$(cat "$VERSION_MARKER")" == "$zashboard_ver" ]; then
-    echo "✅ zashboard 已是最新版本，跳过下载。"
-    exit 0
+    if [ -f "$ZASHBOARD_DIR/dist/index.html" ]; then
+        echo "✅ zashboard 已是最新版本，跳过下载并重新打包。"
+        node tools/patch-ui.mjs "$ZASHBOARD_DIR/dist"
+        exit 0
+    fi
+    echo "⚠️ 缓存缺少 dist/index.html，重新下载。"
 fi
 
 # 从 JSON 中精准提取目标文件的下载链接

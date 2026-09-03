@@ -50,8 +50,20 @@ set_perm "$MODPATH/bin/suclash_helper" 0 0 0755
 mkdir -p "$DATA_DIR/state" "$DATA_DIR/logs" "$DATA_DIR/cache"
 
 # zashboard 面板复制到数据目录（mihomo external-ui 安全限制：仅允许 -d 主目录内路径）
-rm -rf "$DATA_DIR/ui"
-cp -a "$MODPATH/ui" "$DATA_DIR/ui"
+# 先完整复制并校验，再切换目录，避免复制失败留下不可用的面板。
+UI_TMP="$DATA_DIR/ui.new.$$"
+UI_OLD="$DATA_DIR/ui.old.$$"
+rm -rf "$UI_TMP" "$UI_OLD"
+cp -a "$MODPATH/ui" "$UI_TMP" || abort "! 面板复制失败"
+[ -f "$UI_TMP/index.html" ] || abort "! 面板文件不完整（缺少 index.html）"
+if [ -d "$DATA_DIR/ui" ]; then
+    mv "$DATA_DIR/ui" "$UI_OLD" || abort "! 无法切换旧面板目录"
+fi
+if ! mv "$UI_TMP" "$DATA_DIR/ui"; then
+    [ -d "$UI_OLD" ] && mv "$UI_OLD" "$DATA_DIR/ui"
+    abort "! 无法启用新面板目录"
+fi
+rm -rf "$UI_OLD"
 
 # 用户配置：仅首次生成，升级不覆盖
 if [ ! -f "$DATA_DIR/config.yaml" ]; then
